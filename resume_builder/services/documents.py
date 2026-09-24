@@ -225,8 +225,11 @@ def sweep_orphan_source_pdfs(max_age_s: int = 3600) -> int:
     imports = DATA_DIR / "imports"
     if not imports.is_dir():
         return 0
-    with _db() as conn:
-        rows = conn.execute("SELECT data FROM documents").fetchall()
+    try:
+        with _db() as conn:
+            rows = conn.execute("SELECT data FROM documents").fetchall()
+    except sqlite3.OperationalError:
+        return 0  # 表还未建（极早期调用）
     referenced = set()
     for r in rows:
         try:

@@ -22,7 +22,7 @@ python app.py
 
 | 区域 | 能力 |
 |---|---|
-| 顶栏 | 简历重命名、模板切换（6 套，含 ATS 徽章）、导入、JSON 编辑、导出 PDF / Word / JSON |
+| 顶栏 | 简历重命名、模板切换（6 套，含 ATS 徽章）、**✨ AI 助手**、导入、JSON 编辑、导出 PDF / Word / JSON / HTML |
 | 左栏 · 区块 | 区块树：拖拽 / 箭头排序、显隐切换、重命名、删除；内置 7 区块 + 自定义区块（列表型 / 单块型，字段可配） |
 | 左栏 · 设计 | 字体（黑体 / 宋体 / **上传自有字体**）、字号缩放、行距、区块间距、页边距、主题色（预设 + 取色器）、日期位置、照片开关、一键压缩到一页、**⚡ 自动适应一页**（迭代压缩直到排进一页） |
 | 左栏 · 简历 | 多简历管理：新建（示例 / 空白）、切换、复制、删除、**历史版本**（自动快照，可恢复） |
@@ -52,6 +52,19 @@ python app.py
 - **中文排版**：盘古之白（中西文自动空格）、日期归一化（`YYYY-MM – 至今`）、统一 ` · ` 分隔符、避头尾（`line-break: strict`）、标点悬挂
 - **完美分页三级防线**：① CSS 规则（区块 / 条目不拆分、标题不分离、孤行寡行控制、防空白页）② Playwright 测量（页数、区块落位、建议分页点、警告）③ 手动分页（`doc.pageBreaks` → 渲染注入 `.r-pagebreak`）
 - **字体管线**：Noto Sans/Serif SC 嵌入 PDF，Chromium 自动子集化（17MB → 约 0.6MB）
+
+### ✨ AI 助手（用户自带 Key，OpenAI 兼容协议）
+
+| 页签 | 能力 |
+|---|---|
+| **生成简历** | 填目标岗位 / 年限 / 技能 / 经历要点 → 生成结构化简历内容 → 应用到新文档或替换当前 |
+| **修改建议** | 通读当前简历，从量化成果、动词强度、关键词匹配、ATS 友好度等维度给出带示例的建议 |
+| **JD 定制** | 粘贴 JD → 按关键词改写已有条目（不编造经历）→ 逐条应用；列出 JD 要求但未体现的关键词 |
+| **设置** | Base URL / API Key / 模型 / 超时；内置 DeepSeek、Kimi、通义千千、OpenAI、Ollama 预设；一键测试连接 |
+
+字段级 **✨ 润色**：多行文本与列表每一行都有润色按钮，按 Google XYZ 公式（做了什么 + 可量化结果 + 怎么做）改写，不编造数据。
+
+**Key 安全**：只保存于本机 `data/llm_config.json`（已 gitignore），除你选择的服务商外不发往任何地方；`GET /config` 永不返回 Key 本身。支持任何 OpenAI 兼容服务。
 
 ### 导入导出
 
@@ -141,6 +154,9 @@ SectionConfig = {"key","title","type":"object|array|simple|skills","fields":[Fie
 | `/api/v1/import/json` | POST | JSON 导入（含 v1 迁移，换发新 id） |
 | `/api/v1/import/pdf` | POST | PDF 对照导入（解析 + 原始文件保留） |
 | `/api/v1/documents/<id>/source-pages` | GET | 原始 PDF 逐页渲染（对照视图数据源） |
+| `/api/v1/llm/config` | GET/PUT | AI 配置（GET 不返回 Key） |
+| `/api/v1/llm/test` | POST | 测试 AI 连接 |
+| `/api/v1/llm/polish` `/generate` `/suggest` `/tailor` | POST | 润色 / 生成 / 建议 / JD 定制 |
 | `/api/v1/import-template` | POST | 模板导入（.html/.zip，有穿越防护） |
 
 旧版 `/api/*` 兼容层：`/api/templates`、`/api/sample-data`、`/api/preview/<t>`、`/api/render/<t>`、`/api/export-pdf/<t>`、`/api/export-word/<t>` 已桥接。其他路由：`GET /`（编辑器）、`GET /static/<file>`、`GET /fonts/<file>`、`GET /data/<file>`、`GET /healthz`。
@@ -165,7 +181,7 @@ Chromium 的 PDF 后端**无法正确嵌入 CFF 轮廓的 web font**，会降级
 $env:PYTHONPATH = 'E:\pythonProject\resume-builder'
 
 python app.py                        # 启动（http://localhost:5000）
-python -m pytest tests/ -q           # 全部测试（125 用例，PDF 用例会真实起 Chromium）
+python -m pytest tests/ -q           # 全部测试（153 用例，PDF 用例会真实起 Chromium）
 python tests/debug_pdf_fonts.py      # 诊断：PDF 内嵌字体原始信息 + 渲染页面图
 ```
 
@@ -183,6 +199,7 @@ python tests/debug_pdf_fonts.py      # 诊断：PDF 内嵌字体原始信息 + �
 | `test_features.py` | 字体上传 / 自动适应 / HTML 导出 / 版本历史 / 导出字体自检 / photo 安全 |
 | `test_source_pdf.py` | 对照导入：原始 PDF 落盘 / 往返 / 删除清理 / 复制独立 / 逐页渲染 / 安全路径 |
 | `test_original_export.py` | 原格式导出：无修改原样导出 / 修改应用且版式不变 / 删除 redact / 兜底与报错 |
+| `test_llm.py` | AI：配置安全（Key 不泄露）/ 四项能力 / 错误路径 / 空库启动 |
 
 ### 环境坑（都踩过）
 

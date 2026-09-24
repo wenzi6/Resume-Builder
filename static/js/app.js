@@ -29,6 +29,7 @@ import {
 } from "./components/preview.js";
 import { bindPaginationControls, exitPaginationMode } from "./components/pagination.js";
 import { openJsonEditor, closeJsonEditor, applyJson, bindImportDialog, renderAll } from "./components/jsonEditor.js";
+import { bindAiPanel } from "./components/aiPanel.js";
 
 /* ================= 启动 ================= */
 
@@ -55,6 +56,7 @@ async function boot() {
   bindShortcuts();
   bindStoreEvents();
   bindViewToggle();
+  bindAiPanel();
   bindLangToggle();
 
   try {

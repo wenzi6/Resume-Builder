@@ -16,7 +16,7 @@
 |---|---|
 | PDF 中文字体 Type3 降级（原 P0 阻塞） | ✅ **已解决**：CFF OTF → glyf TTF + 剥离部首 cmap，全模板 Type0、中文可检索 |
 | 前端编辑器（`static/`） | ✅ **已从零完成**：12 个文件，全部交互经真实浏览器验证 |
-| 正式测试套件 | ✅ **pytest 125 用例全绿**（字体 / 分页 / ATS / 迁移 / PDF 导入 / 视觉回归 / 新功能 / 对照导入 / 原格式导出回归） |
+| 正式测试套件 | ✅ **pytest 153 用例全绿**（字体 / 分页 / ATS / 迁移 / PDF 导入 / 视觉回归 / 新功能 / 对照导入 / 原格式导出 / AI 回归） |
 | 视觉走查 | ✅ 6 套模板 → PDF → PNG 逐套检查通过，且有基线像素回归测试 |
 | 优化轮（导出自检 / 自动适应 / 自有字体 / 版本历史 / HTML 导出 / undo / i18n / CI） | ✅ **已完成并经浏览器 10/10 走查**，详见 §3.0 |
 | README / git init / 清理 | ✅ 已完成（`.gitignore` 规范，含 CI 工作流） |
@@ -69,6 +69,7 @@
 | 临时文件清理 | `engine/pdf.py sweep_stale_renders()`（启动时清扫 >1h 残留） | — |
 | photo 安全 | `sections.py _safe_photo_src()`（仅 http(s) / 站内路径） | — |
 | CI | `.github/workflows/ci.yml`（Windows + Playwright） | — |
+| ✨ AI 助手 | `services/llm.py`（OpenAI 兼容客户端，urllib 零依赖 + 可 mock 传输层）+ `api/llm.py` | 顶栏「✨ AI」面板四页签（生成/建议/JD 定制/设置）+ 字段级润色按钮 |
 
 **修过的坑（代码已验证，勿重复排查）**：
 
@@ -87,6 +88,7 @@
 | 11 | 压缩阶梯 0.86/0.84/0.82/0.80 四档空转 | schema 把 fontScale 硬钳到 ≥0.90 | `DESIGN_LIMITS.fontScale` 下限放宽到 0.80（8.4pt 仍是可读下限） |
 | 12 | `api.getJson is not a function` | `api` 对象没挂基础方法，designPanel / sidebar 直接调 | api 对象补 `getJson/postJson/putJson/del` |
 | 13 | 对照导入删除文档后 PDF 残留 | Windows 下 `/data/` 路由句柄短暂锁文件，unlink 静默失败 | 删除重试 3 次 + 启动时孤立文件/页面缓存清扫 |
+| 17 | 空数据库启动即崩 | `sweep_orphan_source_pdfs` 跑在 `init_db` 之前，新机器无表 | init_db 提前 + 清扫对缺表静默 + 回归测试 |
 | 14 | 无头 Chromium 的 PDF 插件不渲染 | 对照视图原用 iframe 直显 PDF，无头环境不可靠 | 改为服务端 pymupdf 渲染逐页 PNG（dpi 需传 int）+ 「原生查看器打开」入口 |
 | 15 | 编辑 app.js 时多了一个 `}` | bindStoreEvents 被提前闭合，后续 store.on 全部孤立 → 整个编辑器 JS 挂掉 | `node --input-type=module --check` 加入验证流程；浏览器 import 逐个模块定位 |
 | 16 | PDF 导入解析质量差 | 词按无空格 join 丢视觉间隔；email 正则 `\w` 匹配汉字把电话/地址糅进邮箱；公司职位不拆 | 词间水平间距 >4px 加空格；email 改 ASCII 且字母开头；机构后缀/职位词拆分 + 日期区间尾巴还原 |
@@ -109,16 +111,13 @@ Chromium PDF 后端对 CFF 轮廓 web font 降级为 Type3。解决链：
 ### 4.2 Phase 2 剩余功能（按建议顺序）
 
 > 优化轮已完成：自有字体上传、自动适应一页、历史版本、HTML 导出、导出自检、undo、i18n、CI。
+> **AI 轮已完成**：用户自带 Key 的 OpenAI 兼容 AI（生成 / 建议 / JD 定制 / 字段润色），见 §3.0。
 > **已决策保留**：`/api/*` 旧版兼容层继续保留（用户可能还开着 v1 页面，删除是产品决策不是技术决策）。
 
-1. **JD 关键词匹配 / ATS 检查**（`services/analyze.py` + `api/analyze.py`）
-   - 输入 JD 文本 → 提取关键词（权重：硬技能 > 教育 > 职位 > 软技能）→ 与简历比对 → 匹配率 + 缺失建议
-   - 纯本地实现，无需外部 API；建议匹配率阈值 ≥75%
-   - 前端入口：编辑器左栏加「分析」页签，或顶栏按钮 + 结果弹窗
-2. **LLM 内容润色**（`services/llm.py` + `api/llm.py`）
-   - OpenAI 兼容协议（base_url / api_key / model 用户可配，**存本地配置，不要提交 key**）
-   - 能力：bullet 按 Google XYZ 公式润色、按 JD 定制改写、量化成果建议
-   - 前端入口：表单字段旁的「AI 润色」按钮 + 设置弹窗
+1. **纯本地 JD 关键词匹配 / ATS 检查**（`services/analyze.py` + `api/analyze.py`）
+   - 不依赖 LLM 的本地版：输入 JD → 提取关键词（硬技能 > 教育 > 职位 > 软技能）→ 与简历比对 → 匹配率 + 缺失建议
+   - 与 AI 的 `/llm/tailor` 互补（一个免费离线、一个深度改写）；建议匹配率阈值 ≥75%
+2. AI 功能增强（可选）：流式输出、多模型切换、对话式追问、批量润色整个区块
 3. 模板预览图：每套模板一张 `preview.png`，模板菜单显示（可复用 `test_visual_regression` 的渲染逻辑生成）
 
 ---

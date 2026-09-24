@@ -24,6 +24,11 @@ def create_app() -> Flask:
 
     register_blueprints(app)
 
+    # ---- 数据库（先建表，后续清理才知道有哪些文档被引用） ----
+    from .services import documents as store
+
+    store.init_db()
+
     # 用户字体目录 + 渲染临时文件清理 + 孤立原始 PDF 清扫
     from .services import font_manager
     from .engine.pdf import sweep_stale_renders
@@ -61,7 +66,6 @@ def create_app() -> Flask:
     store.init_db()
 
     return app
-
 
 def main() -> None:
     app = create_app()

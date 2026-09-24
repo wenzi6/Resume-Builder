@@ -8,6 +8,7 @@
 
 import { store, contentUtil } from "../store.js";
 import { toastError } from "./toast.js";
+import { openPolish } from "./aiPanel.js";
 
 /* ---------------- 图标 ---------------- */
 const ICONS = {
@@ -62,6 +63,13 @@ function fieldLabel(field) {
     const req = el("span", "req", "*");
     label.appendChild(req);
   }
+  if (field.type === "textarea") {
+    const ai = el("button", "ai-field-btn", "✨");
+    ai.type = "button";
+    ai.title = "AI 润色这条内容";
+    label.appendChild(ai);
+    label._aiBtn = ai;
+  }
   return label;
 }
 
@@ -95,6 +103,17 @@ function renderScalarField(sectionKey, field, container, value, path) {
     store.touch();
     if (sectionKey && field.type !== "textarea") updateItemCardTitle(wrap, sectionKey, path);
   });
+  // textarea 字段：label 上的 ✦ 按钮润色整段
+  if (field.type === "textarea") {
+    wrap.querySelector(".ai-field-btn")?.addEventListener("click", () => {
+      const v = String(getByPath(store.doc, path) || "").trim();
+      if (!v) {
+        toastError("请先输入内容再润色");
+        return;
+      }
+      openPolish(path, v, `${sectionKey || ""} ${field.label || ""}`.trim());
+    });
+  }
   wrap.appendChild(input);
   const hint = hintOf(field);
   if (hint) wrap.appendChild(hint);
@@ -105,7 +124,8 @@ function renderScalarField(sectionKey, field, container, value, path) {
 /** 列表字段：每行一条，可增删、上下移。 */
 function renderListField(sectionKey, field, container, items, basePath, opts = {}) {
   const wrap = el("div", "field");
-  wrap.appendChild(fieldLabel(field));
+  const label = fieldLabel(field);
+  wrap.appendChild(label);
   if (field.hint) wrap.appendChild(hintOf(field));
 
   const list = el("div", "list-editor");
@@ -127,6 +147,20 @@ function renderListField(sectionKey, field, container, items, basePath, opts = {
         store.touch();
       });
       row.appendChild(ta);
+
+      // 行内 AI 润色
+      const ai = el("button", "ai-field-btn", "✨");
+      ai.type = "button";
+      ai.title = "AI 润色这一条";
+      ai.addEventListener("click", () => {
+        const v = String(rows[i] || "").trim();
+        if (!v) {
+          toastError("请先输入内容再润色");
+          return;
+        }
+        openPolish(`${basePath}.${i}`, v, `${field.label || ""}`.trim());
+      });
+      row.appendChild(ai);
 
       const up = el("button", "list-row-act", "↑");
       up.type = "button";
