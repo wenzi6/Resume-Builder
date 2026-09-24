@@ -16,7 +16,7 @@
 |---|---|
 | PDF 中文字体 Type3 降级（原 P0 阻塞） | ✅ **已解决**：CFF OTF → glyf TTF + 剥离部首 cmap，全模板 Type0、中文可检索 |
 | 前端编辑器（`static/`） | ✅ **已从零完成**：12 个文件，全部交互经真实浏览器验证 |
-| 正式测试套件 | ✅ **pytest 189 用例全绿**（字体 / 分页 / ATS / 迁移 / PDF 导入 / 视觉回归 / 新功能 / 对照导入 / 原格式导出 / AI / 协议格式 / 流式 / 数据安全回归） |
+| 正式测试套件 | ✅ **pytest 203 用例全绿**（字体 / 分页 / ATS / 迁移 / PDF 导入 / 视觉回归 / 新功能 / 对照导入 / 原格式导出 / AI / 协议格式 / 流式 / 数据安全 / 页数一致性回归） |
 | 视觉走查 | ✅ 6 套模板 → PDF → PNG 逐套检查通过，且有基线像素回归测试 |
 | 优化轮（导出自检 / 自动适应 / 自有字体 / 版本历史 / HTML 导出 / undo / i18n / CI） | ✅ **已完成并经浏览器 10/10 走查**，详见 §3.0 |
 | README / git init / 清理 | ✅ 已完成（`.gitignore` 规范，含 CI 工作流） |
@@ -229,6 +229,8 @@ FieldDef = {"key","label","type":"text|date|textarea|list|rating"}
 | `lineHeight` | 1.45 | 1.20–1.80 |
 | `sectionGap` | 18 | 8–32 px |
 | `pageMargin` | 20 | 12.7–25 mm（硬下限 0.5in） |
+| 21 | 分页页数与实际导出不符（用户报告） | 三重根因：① 测量用 print 模拟但 `.r-sheet` width:auto 按视口 1280px 布局，换行与真实打印完全不同；② 未模拟 break-inside:avoid 挪页 / 超高区块先挪后拆 / 双栏独立流；③ worker 中文警告输出被父进程 GBK 解码崩溃 | 视口设为 A4 内容宽度；JS 原子级分页模拟；**页数改为实际渲染 PDF 的 ground truth**；worker 输出 ensure_ascii + encoding=utf-8 |
+| 22 | JSON 应用后导出旧数据 | setDocument 不标记 dirty，按 id 导出拿到服务端旧文档 | applyJson 后显式 saveNow |
 | `accent` | `#0f766e` | hex |
 | `dateAlign` | `right` | right / below |
 | `showPhoto` | false | bool |

@@ -58,10 +58,11 @@ def _write_html(html: str) -> Path:
 
 
 def _run_worker(args: list[str]) -> subprocess.CompletedProcess:
+    # encoding="utf-8"：Windows 本地编码是 GBK，含中文的 worker 输出会解码失败
     return subprocess.run(
         [sys.executable, str(WORKER), *args],
         capture_output=True,
-        text=True,
+        encoding="utf-8",
         timeout=PDF_TIMEOUT,
         cwd=str(BASE_DIR),
     )
@@ -102,12 +103,13 @@ class _WorkerPool:
     # ---- 生命周期 ----
 
     def _spawn(self) -> subprocess.Popen:
+        # encoding="utf-8"：Windows 本地编码（GBK）读不了 worker 的中文输出
         proc = subprocess.Popen(
             [sys.executable, str(WORKER), "serve"],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
-            text=True,
+            encoding="utf-8",
             bufsize=1,  # 行缓冲
             cwd=str(BASE_DIR),
         )
@@ -237,19 +239,47 @@ atexit.register(_pool.close)
 # ---------------------------------------------------------------- 对外 API
 
 
+def _count_pdf_pages(data: bytes) -> int:
+    import pymupdf
+
+    with pymupdf.open(stream=data, filetype="pdf") as pdf:
+        return pdf.page_count
+
+
 def measure_pages(doc: dict[str, Any]) -> dict[str, Any]:
-    """测量简历页数与各区块落位，返回分页信息。"""
+    """测量简历页数与各区块落位，返回分页信息。
+
+    页数以实际渲染的 PDF 为准（ground truth，与导出永远一致）；
+    各区块落位来自 JS 原子模拟（供分页覆盖层）。
+    """
     from .renderer import render_for_pdf
 
+    d = _ensure_render_dir()
     html_path = _write_html(render_for_pdf(doc))
+    pdf_path = d / f"measure_{uuid.uuid4().hex}.pdf"
     try:
         try:
-            resp = _pool.request({"mode": "measure", "html_path": str(html_path)}, PDF_TIMEOUT)
-            return resp["result"]
+            resp = _pool.request(
+                {"mode": "pageinfo", "html_path": str(html_path), "pdf_path": str(pdf_path)},
+                PDF_TIMEOUT,
+            )
+            result = resp["result"]
+            actual = _count_pdf_pages(pdf_path.read_bytes())
+            result["pageCount"] = actual
+            return result
         except _Fallback:
-            return _measure_once(html_path)
+            return _measure_once_with_pdf(html_path, pdf_path)
     finally:
         html_path.unlink(missing_ok=True)
+        pdf_path.unlink(missing_ok=True)
+
+
+def _measure_once_with_pdf(html_path: Path, pdf_path: Path) -> dict[str, Any]:
+    """兜底路径：单次子进程做 JS 测量 + PDF 渲染，页数取 PDF 实际值。"""
+    info = _measure_once(html_path)
+    _pdf_once(html_path, pdf_path, None)
+    info["pageCount"] = _count_pdf_pages(pdf_path.read_bytes())
+    return info
 
 
 def render_pdf_bytes(doc: dict[str, Any], breaks: list | None = None) -> bytes:

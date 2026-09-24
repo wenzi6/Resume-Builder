@@ -51,6 +51,7 @@ python app.py
 - **设计令牌**：`doc.design`（字体 / 字号 / 行距 / 间距 / 边距 / 主题色…）由 `engine/tokens.py` 编译为 CSS 变量，模板只消费变量；`compact` 一键联动四参数
 - **中文排版**：盘古之白（中西文自动空格）、日期归一化（`YYYY-MM – 至今`）、统一 ` · ` 分隔符、避头尾（`line-break: strict`）、标点悬挂
 - **完美分页三级防线**：① CSS 规则（区块 / 条目不拆分、标题不分离、孤行寡行控制、防空白页）② Playwright 测量（页数、区块落位、建议分页点、警告）③ 手动分页（`doc.pageBreaks` → 渲染注入 `.r-pagebreak`）
+- **页数即所见**：页码以**实际渲染的 PDF** 为准（ground truth），徽章 / 分页线 / 自动适应与导出永远一致；区块落位用 JS 原子级分页模拟（复现 Chromium 的 `break-inside:avoid` 挪页、超高区块先挪后拆、双栏独立流）
 - **字体管线**：Noto Sans/Serif SC 嵌入 PDF，Chromium 自动子集化（17MB → 约 0.6MB）
 
 ### 性能与工程
@@ -201,7 +202,7 @@ $env:PYTHONPATH = 'E:\pythonProject\resume-builder'
 
 python app.py                        # 启动（http://localhost:5000）
 node scripts/check_js.mjs           # 前端语法检查（或 npm run check）
-python -m pytest tests/ -q           # 全部测试（189 用例，PDF 用例会真实起 Chromium）
+python -m pytest tests/ -q           # 全部测试（203 用例，PDF 用例会真实起 Chromium）
 python tests/debug_pdf_fonts.py      # 诊断：PDF 内嵌字体原始信息 + 渲染页面图
 ```
 

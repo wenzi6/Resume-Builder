@@ -42,6 +42,9 @@ export async function applyJson() {
   // 保留 id，其余整体替换
   const merged = { ...parsed, id: doc.id };
   store.setDocument(merged);
+  // setDocument 不标记 dirty（切换文档语义），这里显式保存，
+  // 否则随后按 id 导出会拿到服务端的旧文档
+  await store.saveNow();
   closeJsonEditor();
   renderAll();
   toastSuccess("已应用 JSON 修改");
