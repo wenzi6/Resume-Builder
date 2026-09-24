@@ -1,10 +1,12 @@
-"""LLM API：配置 / 测试连接 / 润色 / 生成 / 建议 / JD 定制。
+"""LLM API：配置 / 测试连接 / 润色 / 生成 / 建议 / JD 定制 / 流式。
 
 安全约定：
 - GET /config 永不返回 api_key（只返回 has_key）
 - api_key 只通过 PUT /config 写入本地 data/llm_config.json（gitignored）
 """
 from __future__ import annotations
+
+import json
 
 from flask import Blueprint, jsonify, request
 
@@ -100,3 +102,57 @@ def tailor():
     except Exception as e:  # noqa: BLE001
         return jsonify({"error": str(e)}), 502
     return jsonify(result)
+
+
+@bp.post("/stream")
+def llm_stream():
+    """流式能力（SSE）：逐段下发模型输出，最后一条带结构化结果。
+
+    事件格式（text/event-stream）：
+        data: {"chunk": "文本增量"}
+        data: {"done": true, "result": {...}}     最终结构化结果
+        data: {"error": "..."}                    失败
+    """
+    import queue
+    import threading
+
+    from flask import Response, stream_with_context
+
+    body = _body()
+    capability = str(body.get("capability") or "")
+    if capability not in ("polish", "generate"):
+        return jsonify({"error": f"不支持的流式能力：{capability}（可选 polish / generate）"}), 400
+
+    def generate():
+        q: queue.Queue = queue.Queue()
+
+        def on_chunk(text):
+            q.put(("chunk", text))
+
+        def worker():
+            try:
+                if capability == "polish":
+                    text = str(body.get("text") or "")
+                    result = llm.polish_text(text, str(body.get("context") or ""), on_chunk)
+                else:
+                    brief = body.get("brief")
+                    if not isinstance(brief, dict):
+                        raise ValueError("请提供 brief 参数")
+                    result = llm.generate_resume(brief, on_chunk)
+                q.put(("done", result))
+            except Exception as e:  # noqa: BLE001
+                q.put(("error", str(e)))
+
+        threading.Thread(target=worker, daemon=True).start()
+        while True:
+            kind, payload = q.get()
+            if kind == "chunk":
+                yield f"data: {json.dumps({'chunk': payload}, ensure_ascii=False)}\n\n"
+            elif kind == "done":
+                yield f"data: {json.dumps({'done': True, 'result': payload}, ensure_ascii=False)}\n\n"
+                return
+            else:
+                yield f"data: {json.dumps({'error': payload}, ensure_ascii=False)}\n\n"
+                return
+
+    return Response(stream_with_context(generate()), mimetype="text/event-stream")

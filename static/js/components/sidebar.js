@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * 左栏：区块管理（排序 / 显隐 / 重命名 / 新增 / 删除）+ 文档列表。
  */
@@ -304,7 +305,15 @@ export async function renderDocList(container) {
     container.appendChild(el("li", "field-hint", "还没有简历，点击上方按钮新建。"));
     return;
   }
-  const sorted = [...docs].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  // 搜索过滤（按标题）+ 按更新时间排序
+  const q = (document.getElementById("docSearch")?.value || "").trim().toLowerCase();
+  const sorted = docs
+    .filter((d) => !q || (d.title || "").toLowerCase().includes(q))
+    .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  if (!sorted.length) {
+    container.appendChild(el("li", "field-hint", "没有匹配的简历"));
+    return;
+  }
   for (const d of sorted) {
     container.appendChild(docItem(d));
   }
@@ -461,6 +470,106 @@ export function bindVersionsDialog() {
   overlay.addEventListener("click", (e) => {
     if (e.target === overlay) overlay.hidden = true;
   });
+}
+
+/* ---------------- 数据安全：导出全部 / 导入全部 / 备份 ---------------- */
+
+async function exportAllDocs() {
+  try {
+    const resp = await fetch("/api/v1/documents/export-all");
+    if (!resp.ok) throw new Error((await resp.json()).error || `HTTP ${resp.status}`);
+    const blob = await resp.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `resume-studio-${new Date().toISOString().slice(0, 10)}.zip`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+    toastSuccess("已导出全部简历（ZIP）");
+  } catch (e) {
+    toastError("导出失败：" + e.message);
+  }
+}
+
+async function importAllDocs(file) {
+  try {
+    const fd = new FormData();
+    fd.append("file", file);
+    const resp = await fetch("/api/v1/documents/import-all", { method: "POST", body: fd });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
+    renderDocList(document.getElementById("docList"));
+    const skipped = data.skipped?.length ? `，跳过 ${data.skipped.length} 个` : "";
+    toastSuccess(`已导入 ${data.count} 份简历${skipped}`);
+  } catch (e) {
+    toastError("导入失败：" + e.message);
+  }
+}
+
+export async function renderBackupList() {
+  const list = document.getElementById("backupList");
+  list.textContent = "";
+  try {
+    const data = await api.getJson("/api/v1/backups");
+    if (!data.backups?.length) {
+      list.appendChild(el("li", "field-hint", "还没有备份"));
+      return;
+    }
+    for (const b of data.backups) {
+      const li = el("li", "doc-item");
+      const head = el("div", "doc-item-head");
+      head.appendChild(el("span", "doc-item-title", b.createdText));
+      const size = el("span", "field-hint", `${(b.size / 1024).toFixed(0)} KB`);
+      head.appendChild(size);
+      const btn = el("button", "btn btn-sm", "恢复");
+      btn.type = "button";
+      btn.addEventListener("click", async () => {
+        const ok = await confirmDialog(`确定恢复到 ${b.createdText} 的备份？当前数据将被覆盖（恢复前会再自动备份一次）。`);
+        if (!ok) return;
+        try {
+          await api.postJson("/api/v1/backups/now", {});  // 恢复前先保一份
+          await api.postJson("/api/v1/backups/restore", { name: b.name });
+          toastSuccess("已恢复，正在重载…");
+          setTimeout(() => location.reload(), 800);
+        } catch (e) {
+          toastError("恢复失败：" + e.message);
+        }
+      });
+      head.appendChild(btn);
+      li.appendChild(head);
+      list.appendChild(li);
+    }
+  } catch (e) {
+    list.appendChild(el("li", "field-hint", "加载失败：" + e.message));
+  }
+}
+
+export function bindDataSafety() {
+  document.getElementById("btnExportAll").addEventListener("click", exportAllDocs);
+  document.getElementById("btnImportAll").addEventListener("click", () =>
+    document.getElementById("importAllInput").click());
+  document.getElementById("importAllInput").addEventListener("change", (e) => {
+    const file = e.target.files[0];
+    if (file) importAllDocs(file);
+    e.target.value = "";
+  });
+  document.getElementById("btnBackupNow").addEventListener("click", async () => {
+    try {
+      const r = await api.postJson("/api/v1/backups/now", {});
+      renderBackupList();
+      toastSuccess(r.backup ? "备份完成" : "内容无变化，未生成新备份");
+    } catch (e) {
+      toastError("备份失败：" + e.message);
+    }
+  });
+  // 文档搜索（输入即过滤）
+  const search = document.getElementById("docSearch");
+  if (search && !search.dataset.bound) {
+    search.dataset.bound = "1";
+    search.addEventListener("input", () => renderDocList(document.getElementById("docList")));
+  }
 }
 
 /* ---------------- 通用确认弹窗 ---------------- */

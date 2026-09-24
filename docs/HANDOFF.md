@@ -16,7 +16,7 @@
 |---|---|
 | PDF 中文字体 Type3 降级（原 P0 阻塞） | ✅ **已解决**：CFF OTF → glyf TTF + 剥离部首 cmap，全模板 Type0、中文可检索 |
 | 前端编辑器（`static/`） | ✅ **已从零完成**：12 个文件，全部交互经真实浏览器验证 |
-| 正式测试套件 | ✅ **pytest 163 用例全绿**（字体 / 分页 / ATS / 迁移 / PDF 导入 / 视觉回归 / 新功能 / 对照导入 / 原格式导出 / AI / 协议格式回归） |
+| 正式测试套件 | ✅ **pytest 189 用例全绿**（字体 / 分页 / ATS / 迁移 / PDF 导入 / 视觉回归 / 新功能 / 对照导入 / 原格式导出 / AI / 协议格式 / 流式 / 数据安全回归） |
 | 视觉走查 | ✅ 6 套模板 → PDF → PNG 逐套检查通过，且有基线像素回归测试 |
 | 优化轮（导出自检 / 自动适应 / 自有字体 / 版本历史 / HTML 导出 / undo / i18n / CI） | ✅ **已完成并经浏览器 10/10 走查**，详见 §3.0 |
 | README / git init / 清理 | ✅ 已完成（`.gitignore` 规范，含 CI 工作流） |
@@ -68,7 +68,12 @@
 | 原格式导出 | `services/pdf_patch.py`（Span 级文本替换：改/删/未定位分级处理）+ export mode=original | 「导出 PDF」默认原格式（修改打进原 PDF），「模板排版」为次要按钮 |
 | 临时文件清理 | `engine/pdf.py sweep_stale_renders()`（启动时清扫 >1h 残留） | — |
 | photo 安全 | `sections.py _safe_photo_src()`（仅 http(s) / 站内路径） | — |
-| CI | `.github/workflows/ci.yml`（Windows + Playwright） | — |
+| CI | `.github/workflows/ci.yml`（Windows + Playwright + 前端语法检查） | — |
+| 性能：常驻 worker 池 | `engine/pdf.py _WorkerPool`（JSON 行协议，Chromium 复用；崩溃自重启 + 单次子进程兜底；RLock） | 测量 ~1.6s→~0.4s |
+| 数据安全 | `services/bundle.py`（SQLite backup API + ZIP 全量导出入 + 启动/30min/退出自动备份，留 10 份）+ `api/backups.py` | 简历页签：搜索 / 导出全部 / 导入全部 / 备份列表与恢复 |
+| AI 流式 | `llm.chat_stream`（四种格式 SSE delta 解析）+ `/api/v1/llm/stream`（线程+队列） | 润色 / 生成逐段显示 |
+| 生产服务器 | waitress（多线程；FLASK_DEBUG=1 仍 dev） | — |
+| 前端检查 | `scripts/check_js.mjs` + package.json type=module + `// @ts-check` | CI 必过 |
 | ✨ AI 助手 | `services/llm.py`（urllib 零依赖，**四种协议格式适配器**：openai/azure/anthropic/gemini，`_http_post` 可 mock）+ `api/llm.py` | 顶栏「✨ AI」面板四页签 + 24 个服务商预设分组 + 格式选择器 + 字段级润色按钮 |
 
 **修过的坑（代码已验证，勿重复排查）**：
@@ -89,6 +94,9 @@
 | 12 | `api.getJson is not a function` | `api` 对象没挂基础方法，designPanel / sidebar 直接调 | api 对象补 `getJson/postJson/putJson/del` |
 | 13 | 对照导入删除文档后 PDF 残留 | Windows 下 `/data/` 路由句柄短暂锁文件，unlink 静默失败 | 删除重试 3 次 + 启动时孤立文件/页面缓存清扫 |
 | 17 | 空数据库启动即崩 | `sweep_orphan_source_pdfs` 跑在 `init_db` 之前，新机器无表 | init_db 提前 + 清扫对缺表静默 + 回归测试 |
+| 18 | worker 池自死锁 | `request()` 持非可重入锁时调用 `close()` 再抢同锁 → 全量测试挂起 | 改 `threading.RLock` + 回归测试 |
+| 19 | 备份跳过判断失效 | SQLite 备份文件字节布局不同，md5 比对永远不等 | 改逻辑签名（文档数 + max updatedAt + 版本数） |
+| 20 | bundle 模块绑定旧路径 | `from .documents import DB_PATH` 导入时绑定，测试 monkeypatch 失效 | 运行时 `_store.DB_PATH` / `config.DATA_DIR` 动态读 |
 | 14 | 无头 Chromium 的 PDF 插件不渲染 | 对照视图原用 iframe 直显 PDF，无头环境不可靠 | 改为服务端 pymupdf 渲染逐页 PNG（dpi 需传 int）+ 「原生查看器打开」入口 |
 | 15 | 编辑 app.js 时多了一个 `}` | bindStoreEvents 被提前闭合，后续 store.on 全部孤立 → 整个编辑器 JS 挂掉 | `node --input-type=module --check` 加入验证流程；浏览器 import 逐个模块定位 |
 | 16 | PDF 导入解析质量差 | 词按无空格 join 丢视觉间隔；email 正则 `\w` 匹配汉字把电话/地址糅进邮箱；公司职位不拆 | 词间水平间距 >4px 加空格；email 改 ASCII 且字母开头；机构后缀/职位词拆分 + 日期区间尾巴还原 |
@@ -111,6 +119,7 @@ Chromium PDF 后端对 CFF 轮廓 web font 降级为 Type3。解决链：
 ### 4.2 Phase 2 剩余功能（按建议顺序）
 
 > 优化轮已完成：自有字体上传、自动适应一页、历史版本、HTML 导出、导出自检、undo、i18n、CI。
+> **交付优化轮已完成**（A 性能 / C 数据 / B 检查 / D 流式 + E/F 打磨）：常驻 worker 池、数据安全三件套、前端 ESM 语法检查、AI SSE 流式、waitress、文档搜索。**项目达到产品交付水准**，剩余仅为增值功能（§4.2）。
 > **AI 轮已完成**：用户自带 Key 的 AI（生成 / 建议 / JD 定制 / 字段润色）；支持 24 个服务商预设与四种 API 协议格式（OpenAI 兼容 / Anthropic 原生 / Gemini 原生 / Azure），新增协议只需在 `_FORMATS` 注册一组 build/parse。
 > **已决策保留**：`/api/*` 旧版兼容层继续保留（用户可能还开着 v1 页面，删除是产品决策不是技术决策）。
 

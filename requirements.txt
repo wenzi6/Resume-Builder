@@ -5,6 +5,7 @@ playwright>=1.40
 python-docx>=1.1.0
 pdfplumber>=0.11
 pymupdf>=1.24
+waitress>=3.0
 
 # 开发 / 维护工具（tests 与 tools/ 需要）
 fonttools>=4.40

@@ -200,12 +200,12 @@ def _merge_consecutive(messages: list[dict]) -> list[dict]:
     return out
 
 
-def _build_openai(cfg, messages, temperature, max_tokens):
+def _build_openai(cfg, messages, temperature, max_tokens, stream=False):
     return (
         f"{cfg['base_url']}/chat/completions",
         {"Authorization": f"Bearer {cfg['api_key']}"},
         {"model": cfg["model"], "messages": messages,
-         "temperature": temperature, "max_tokens": max_tokens, "stream": False},
+         "temperature": temperature, "max_tokens": max_tokens, "stream": stream},
     )
 
 
@@ -213,14 +213,21 @@ def _parse_openai(data):
     return data["choices"][0]["message"]["content"]
 
 
-def _build_azure(cfg, messages, temperature, max_tokens):
+def _delta_openai(data):
+    try:
+        return data["choices"][0]["delta"].get("content") or ""
+    except (KeyError, IndexError, TypeError):
+        return ""
+
+
+def _build_azure(cfg, messages, temperature, max_tokens, stream=False):
     # URL: {base}/openai/deployments/{model}/chat/completions?api-version=...
     return (
         f"{cfg['base_url']}/openai/deployments/{cfg['model']}/chat/completions"
         f"?api-version={AZURE_API_VERSION}",
         {"api-key": cfg["api_key"]},
         {"messages": messages, "temperature": temperature,
-         "max_tokens": max_tokens, "stream": False},
+         "max_tokens": max_tokens, "stream": stream},
     )
 
 
@@ -228,10 +235,13 @@ def _parse_azure(data):
     return data["choices"][0]["message"]["content"]
 
 
-def _build_anthropic(cfg, messages, temperature, max_tokens):
+def _delta_azure(data):
+    return _delta_openai(data)
+
+
+def _build_anthropic(cfg, messages, temperature, max_tokens, stream=False):
     system, rest = _split_system(messages)
     rest = _merge_consecutive(rest)
-    # Anthropic 的 role 只有 user/assistant
     conv = [{"role": ("assistant" if m["role"] == "assistant" else "user"),
              "content": m.get("content", "")} for m in rest]
     payload: dict[str, Any] = {
@@ -239,6 +249,7 @@ def _build_anthropic(cfg, messages, temperature, max_tokens):
         "messages": conv,
         "max_tokens": max_tokens,
         "temperature": temperature,
+        "stream": stream,
     }
     if system:
         payload["system"] = system
@@ -250,13 +261,18 @@ def _build_anthropic(cfg, messages, temperature, max_tokens):
 
 
 def _parse_anthropic(data):
-    # content 是 block 数组，取所有 text block 拼接
     blocks = data.get("content") or []
     texts = [b.get("text", "") for b in blocks if isinstance(b, dict) and b.get("type") == "text"]
     return "".join(texts)
 
 
-def _build_gemini(cfg, messages, temperature, max_tokens):
+def _delta_anthropic(data):
+    if data.get("type") == "content_block_delta":
+        return (data.get("delta") or {}).get("text") or ""
+    return ""
+
+
+def _build_gemini(cfg, messages, temperature, max_tokens, stream=False):
     system, rest = _split_system(messages)
     contents = []
     for m in _merge_consecutive(rest):
@@ -270,10 +286,11 @@ def _build_gemini(cfg, messages, temperature, max_tokens):
     }
     if system:
         payload["systemInstruction"] = {"parts": [{"text": system}]}
-    # Gemini 的 key 走 URL 查询参数
+    method = "streamGenerateContent" if stream else "generateContent"
     sep = "&" if "?" in cfg["base_url"] else "?"
+    query = f"{sep}alt=sse&key={cfg['api_key']}" if stream else f"{sep}key={cfg['api_key']}"
     return (
-        f"{cfg['base_url']}/v1beta/models/{cfg['model']}:generateContent{sep}key={cfg['api_key']}",
+        f"{cfg['base_url']}/v1beta/models/{cfg['model']}:{method}{query}",
         {},
         payload,
     )
@@ -284,21 +301,29 @@ def _parse_gemini(data):
     return "".join(p.get("text", "") for p in parts)
 
 
+def _delta_gemini(data):
+    try:
+        parts = data["candidates"][0]["content"]["parts"]
+        return "".join(p.get("text", "") for p in parts)
+    except (KeyError, IndexError, TypeError):
+        return ""
+
+
 _FORMATS = {
-    "openai": (_build_openai, _parse_openai),
-    "azure": (_build_azure, _parse_azure),
-    "anthropic": (_build_anthropic, _parse_anthropic),
-    "gemini": (_build_gemini, _parse_gemini),
+    "openai": (_build_openai, _parse_openai, _delta_openai),
+    "azure": (_build_azure, _parse_azure, _delta_azure),
+    "anthropic": (_build_anthropic, _parse_anthropic, _delta_anthropic),
+    "gemini": (_build_gemini, _parse_gemini, _delta_gemini),
 }
 
 
 def chat(messages: list[dict], temperature: float = 0.7, max_tokens: int = 2000) -> str:
-    """调用对话模型，返回文本内容（按配置的 format 走对应协议）。"""
+    """调用对话模型，返回完整文本（按配置的 format 走对应协议）。"""
     cfg = load_config()
     if not (cfg["base_url"] and cfg["api_key"] and cfg["model"]):
         raise ValueError("AI 尚未配置：请先在「AI 设置」中填写 Base URL / API Key / 模型")
     fmt = cfg.get("format") or "openai"
-    build, parse = _FORMATS.get(fmt, _FORMATS["openai"])
+    build, parse, _ = _FORMATS.get(fmt, _FORMATS["openai"])
     url, headers, payload = build(cfg, messages, temperature, max_tokens)
     try:
         data = _http_post(url, headers, payload, cfg["timeout"])
@@ -311,6 +336,51 @@ def chat(messages: list[dict], temperature: float = 0.7, max_tokens: int = 2000)
     if not text:
         raise RuntimeError(f"AI 返回了空内容（{fmt}）")
     return text
+
+
+def _open_stream(req, timeout: int):
+    """发起流式请求（测试可 monkeypatch 此函数）。"""
+    return urllib.request.urlopen(req, timeout=timeout)
+
+
+def chat_stream(messages: list[dict], temperature: float = 0.7, max_tokens: int = 2000):
+    """流式调用，逐段 yield 文本增量（SSE）。失败时抛 RuntimeError。"""
+    cfg = load_config()
+    if not (cfg["base_url"] and cfg["api_key"] and cfg["model"]):
+        raise ValueError("AI 尚未配置：请先在「AI 设置」中填写 Base URL / API Key / 模型")
+    fmt = cfg.get("format") or "openai"
+    build, _, delta_of = _FORMATS.get(fmt, _FORMATS["openai"])
+    url, headers, payload = build(cfg, messages, temperature, max_tokens, stream=True)
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json", "Accept": "text/event-stream", **headers},
+        method="POST",
+    )
+    got_any = False
+    try:
+        with _open_stream(req, cfg["timeout"]) as resp:
+            for raw in resp:
+                line = raw.decode("utf-8", "replace").strip()
+                if not line.startswith("data:"):
+                    continue
+                data = line[5:].strip()
+                if not data or data == "[DONE]":
+                    continue
+                try:
+                    obj = json.loads(data)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(obj, dict) and obj.get("error"):
+                    raise RuntimeError(_friendly_error(Exception(str(obj["error"]))))
+                delta = delta_of(obj)
+                if delta:
+                    got_any = True
+                    yield delta
+    except Exception as e:  # noqa: BLE001
+        raise RuntimeError(_friendly_error(e)) from e
+    if not got_any:
+        raise RuntimeError(f"AI 未返回任何内容（{fmt}）")
 
 
 def test_connection() -> dict:
@@ -351,7 +421,21 @@ def _extract_json(text: str) -> Any:
 # ---------------------------------------------------------------- 能力 1：润色
 
 
-def polish_text(text: str, context: str = "") -> dict:
+def _run(messages: list[dict], temperature: float, max_tokens: int, on_chunk=None) -> str:
+    """统一入口：有 on_chunk 走流式（边收边回调），否则一次性返回。"""
+    if on_chunk is None:
+        return chat(messages, temperature, max_tokens)
+    parts = []
+    for chunk in chat_stream(messages, temperature, max_tokens):
+        parts.append(chunk)
+        on_chunk(chunk)
+    text = "".join(parts).strip()
+    if not text:
+        raise RuntimeError("AI 未返回任何内容")
+    return text
+
+
+def polish_text(text: str, context: str = "", on_chunk=None) -> dict:
     """按 Google XYZ 公式润色单条内容。"""
     text = (text or "").strip()
     if not text:
@@ -372,7 +456,7 @@ def polish_text(text: str, context: str = "") -> dict:
         },
         {"role": "user", "content": f"请润色以下简历内容{ctx}：\n{text}"},
     ]
-    result = chat(messages, temperature=0.6, max_tokens=600)
+    result = _run(messages, 0.6, 600, on_chunk)
     return {"original": text, "result": result}
 
 
@@ -389,7 +473,7 @@ _GEN_SCHEMA_HINT = """{
 }"""
 
 
-def generate_resume(brief: dict) -> dict:
+def generate_resume(brief: dict, on_chunk=None) -> dict:
     """根据简要信息生成结构化简历内容。"""
     if not isinstance(brief, dict):
         raise ValueError("参数错误")
@@ -417,7 +501,7 @@ def generate_resume(brief: dict) -> dict:
         },
         {"role": "user", "content": "\n".join(parts)},
     ]
-    data = _extract_json(chat(messages, temperature=0.7, max_tokens=2500))
+    data = _extract_json(_run(messages, 0.7, 2500, on_chunk))
     if not isinstance(data, dict):
         raise ValueError("AI 返回结构异常")
     # 包成文档走归一化，保证形状合法

@@ -1,9 +1,32 @@
+// @ts-check
 /**
  * 全局状态：文档、模板、schema + 防抖自动保存 + localStorage 兜底。
  *
  * 数据流：组件 mutate store.doc -> store.touch() -> 防抖调度：
  *   - 300ms  -> 重新渲染预览（emit 'preview'）
  *   - 800ms  -> PUT 保存到后端 + 写 localStorage（emit 'saved' / 'dirty'）
+ */
+
+/**
+ * 全局状态：文档、模板、schema + 防抖自动保存 + localStorage 兜底。
+ *
+ * 数据流：组件 mutate store.doc -> store.touch() -> 防抖调度：
+ *   - 300ms  -> 重新渲染预览（emit 'preview'）
+ *   - 800ms  -> PUT 保存到后端 + 写 localStorage（emit 'saved' / 'dirty'）
+ *
+ * @typedef {Object} Document
+ * @property {string} id
+ * @property {string} title
+ * @property {string} templateId
+ * @property {Record<string, any>} design
+ * @property {Array<Record<string, any>>} sections
+ * @property {Record<string, any>} content
+ * @property {string[]} [pageBreaks]
+ * @property {string} [sourcePdf]      对照导入的原始 PDF（相对 data/ 的路径）
+ * @property {Record<string, any>} [sourceContent]  导入时的解析快照
+ * @property {number} version
+ * @property {number} createdAt
+ * @property {number} updatedAt
  */
 
 const LS_PREFIX = "resume-studio:autosave:";
@@ -87,7 +110,10 @@ class Store {
     return this.state.schema;
   }
 
-  /** 标记内容已变更：调度预览刷新与自动保存。 */
+  /**
+   * 标记内容已变更：调度预览刷新与自动保存。
+   * @param {{pageInfo?: boolean}} [options]
+   */
   touch(options = {}) {
     if (!this.state.doc) return;
     if (!this._histLock) this._checkpoint();
@@ -123,6 +149,10 @@ class Store {
     return this._redoStack.length > 0;
   }
 
+  /**
+   * 撤销上一步（以编辑突发为粒度）。
+   * @returns {boolean} 是否执行了撤销
+   */
   undo() {
     if (!this._history.length || !this.state.doc) return false;
     this._redoStack.push(deepClone(this.state.doc));
@@ -137,6 +167,10 @@ class Store {
     return true;
   }
 
+  /**
+   * 重做。
+   * @returns {boolean} 是否执行了重做
+   */
   redo() {
     if (!this._redoStack.length || !this.state.doc) return false;
     this._history.push(deepClone(this.state.doc));
@@ -182,6 +216,11 @@ class Store {
   }
 
   // ---------- 保存 ----------
+  /**
+   * 立即保存（跳过防抖）。保存成功后只同步服务端时间戳，
+   * 不整体替换文档对象——已渲染表单的闭包持有旧引用。
+   * @returns {Promise<void>}
+   */
   async saveNow() {
     const doc = this.state.doc;
     if (!doc || !doc.id) return;
@@ -253,6 +292,11 @@ class Store {
   }
 
   // ---------- 文档切换 ----------
+  /**
+   * 整体替换当前文档（切换 / 撤销 / 恢复版本 / AI 应用）。
+   * 会触发 doc-swapped 事件（表单与区块树重画）。
+   * @param {Document} doc
+   */
   setDocument(doc) {
     clearTimeout(this._saveTimer);
     this._saveTimer = null;

@@ -927,6 +927,12 @@ input[type="range"]::-moz-range-thumb {
   line-height: 1.7;
 }
 
+.backup-block {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px dashed var(--border-strong);
+}
+
 /* ============ AI 助手 ============ */
 .btn-ai {
   background: linear-gradient(135deg, #7c3aed, #4f46e5);

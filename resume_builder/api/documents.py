@@ -1,7 +1,10 @@
 """文档 CRUD API。"""
 from __future__ import annotations
 
-from flask import Blueprint, jsonify, request
+import io
+import time
+
+from flask import Blueprint, jsonify, request, send_file
 
 from ..schema import new_document, normalize_document
 from ..services import documents as store
@@ -12,6 +15,41 @@ bp = Blueprint("documents", __name__, url_prefix="/api/v1/documents")
 @bp.get("")
 def list_docs():
     return jsonify({"documents": store.list_documents()})
+
+
+@bp.get("/export-all")
+def export_all_docs():
+    """全部文档导出为 ZIP（JSON + 原始 PDF + manifest）。"""
+    from ..services import bundle
+
+    try:
+        data = bundle.export_all()
+    except Exception as e:  # noqa: BLE001
+        return jsonify({"error": f"导出失败：{e}"}), 500
+    return send_file(
+        io.BytesIO(data), as_attachment=True,
+        download_name=f"resume-studio-{time.strftime('%Y%m%d')}.zip",
+        mimetype="application/zip",
+    )
+
+
+@bp.post("/import-all")
+def import_all_docs():
+    """从 ZIP 全量导入（全部作为新文档）。"""
+    from ..services import bundle
+
+    if "file" not in request.files:
+        return jsonify({"error": "请选择 ZIP 文件"}), 400
+    file = request.files["file"]
+    if not file.filename.lower().endswith(".zip"):
+        return jsonify({"error": "仅支持 .zip 格式"}), 400
+    try:
+        result = bundle.import_all(file.read())
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:  # noqa: BLE001
+        return jsonify({"error": f"导入失败：{e}"}), 500
+    return jsonify(result)
 
 
 @bp.post("")

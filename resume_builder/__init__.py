@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import os
+import threading
+import time
 from pathlib import Path
 
 from flask import Flask, send_from_directory
@@ -38,6 +40,29 @@ def create_app() -> Flask:
     sweep_stale_renders(max_age_s=3600)
     sweep_orphan_source_pdfs(max_age_s=3600)
 
+    # 数据安全：启动即备份 + 每 30 分钟定期备份（守护线程，内容无变化则跳过）
+    from .services import bundle
+
+    try:
+        bundle.backup_db()
+    except Exception:  # noqa: BLE001 备份失败不阻塞启动
+        pass
+
+    def _backup_loop():
+        while True:
+            time.sleep(1800)
+            try:
+                bundle.backup_db()
+            except Exception:  # noqa: BLE001
+                pass
+
+    threading.Thread(target=_backup_loop, daemon=True).start()
+
+    # 优雅退出时再备份一次
+    import atexit
+
+    atexit.register(lambda: bundle.backup_db())
+
     # ---- 编辑器与静态资源 ----
     @app.get("/")
     def index():
@@ -73,4 +98,13 @@ def main() -> None:
     print("Resume Studio starting...")
     print("Templates:", config.TEMPLATES_DIR)
     print(f"Visit: http://localhost:{config.PORT}")
-    app.run(debug=debug, port=config.PORT, host="127.0.0.1")
+    if debug:
+        app.run(debug=True, port=config.PORT, host="127.0.0.1")
+        return
+    # 生产模式：waitress（多线程、无 dev server 警告）；未安装则回退 Flask dev server
+    try:
+        from waitress import serve
+
+        serve(app, host="127.0.0.1", port=config.PORT, threads=8, ident="Resume Studio")
+    except ImportError:
+        app.run(debug=False, port=config.PORT, host="127.0.0.1")

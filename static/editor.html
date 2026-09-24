@@ -78,7 +78,23 @@
             <button class="btn btn-sm btn-ghost" type="button" id="btnNewFromSample" data-i18n="docs.newSample">从示例新建</button>
             <button class="btn btn-sm btn-ghost" type="button" id="btnNewBlank" data-i18n="docs.newBlank">空白新建</button>
           </div>
+          <div class="field-group" style="margin-bottom:10px">
+            <input class="field-input" type="search" id="docSearch" placeholder="搜索简历标题…" aria-label="搜索简历">
+          </div>
+          <div class="doc-new-row">
+            <button class="btn btn-sm btn-ghost" type="button" id="btnExportAll" title="全部简历导出为 ZIP（含原始 PDF，可整体迁移）">导出全部</button>
+            <button class="btn btn-sm btn-ghost" type="button" id="btnImportAll" title="从 ZIP 全量导入（全部作为新文档）">导入全部</button>
+            <input type="file" id="importAllInput" accept=".zip" hidden>
+          </div>
           <ul class="doc-list" id="docList"></ul>
+          <div class="backup-block">
+            <div class="pane-head">
+              <span class="pane-title">自动备份</span>
+              <button class="btn btn-sm btn-ghost" type="button" id="btnBackupNow">立即备份</button>
+            </div>
+            <p class="pane-hint">每 30 分钟自动备份一次（内容无变化则跳过），保留最近 10 份。数据安全兜底。</p>
+            <ul class="doc-list" id="backupList"></ul>
+          </div>
         </section>
       </div>
     </aside>

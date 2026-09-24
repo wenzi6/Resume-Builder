@@ -25,7 +25,7 @@ python app.py
 | 顶栏 | 简历重命名、模板切换（6 套，含 ATS 徽章）、**✨ AI 助手**、导入、JSON 编辑、导出 PDF / Word / JSON / HTML |
 | 左栏 · 区块 | 区块树：拖拽 / 箭头排序、显隐切换、重命名、删除；内置 7 区块 + 自定义区块（列表型 / 单块型，字段可配） |
 | 左栏 · 设计 | 字体（黑体 / 宋体 / **上传自有字体**）、字号缩放、行距、区块间距、页边距、主题色（预设 + 取色器）、日期位置、照片开关、一键压缩到一页、**⚡ 自动适应一页**（迭代压缩直到排进一页） |
-| 左栏 · 简历 | 多简历管理：新建（示例 / 空白）、切换、复制、删除、**历史版本**（自动快照，可恢复） |
+| 左栏 · 简历 | 多简历管理：新建（示例 / 空白）、切换、复制、删除、**历史版本**（自动快照可恢复）、标题搜索、**导出全部 / 导入全部**（ZIP 整体迁移）、**自动备份**（每 30 分钟，留 10 份，可恢复） |
 | 中栏 | schema 驱动的表单：文本 / 日期 / 多行 / 列表（增删上下移）/ 技能星级，条目卡片增删排序 |
 | 右栏 | iframe 实时预览（300ms 防抖）、页码指示与警告、缩放、**分页编辑模式** |
 
@@ -53,6 +53,12 @@ python app.py
 - **完美分页三级防线**：① CSS 规则（区块 / 条目不拆分、标题不分离、孤行寡行控制、防空白页）② Playwright 测量（页数、区块落位、建议分页点、警告）③ 手动分页（`doc.pageBreaks` → 渲染注入 `.r-pagebreak`）
 - **字体管线**：Noto Sans/Serif SC 嵌入 PDF，Chromium 自动子集化（17MB → 约 0.6MB）
 
+### 性能与工程
+
+- **常驻 PDF worker 进程池**：Chromium 全程只启动一次，分页测量从 ~1.6s 降到 ~0.4s（自动适应一页、页码指示、导出全部受益）；worker 崩溃自动重启，失败回退单次子进程
+- **waitress 生产服务器**：多线程，替代 Flask dev server（`FLASK_DEBUG=1` 仍走 dev 模式）
+- **前端语法检查**：`node scripts/check_js.mjs`（零依赖，ESM 模式逐文件 `node --check`），CI 必过；核心模块带 `// @ts-check` + JSDoc
+
 ### ✨ AI 助手（用户自带 Key，OpenAI 兼容协议）
 
 | 页签 | 能力 |
@@ -63,6 +69,8 @@ python app.py
 | **设置** | 24 个服务商预设（国内 11 / 海外 9 / 本地 4，含智谱 GLM、豆包、混元、千帆、MiniMax、硅基流动、零一万物、阶跃、xAI、OpenRouter、Groq、Together、Mistral、LM Studio、vLLM、One API 中转…）+ 一键测试连接 |
 
 字段级 **✨ 润色**：多行文本与列表每一行都有润色按钮，按 Google XYZ 公式（做了什么 + 可量化结果 + 怎么做）改写，不编造数据。
+
+**流式输出**：润色与生成走 SSE 流式（`/api/v1/llm/stream`），逐段显示模型输出，不用干等 10-30 秒。
 
 **四种 API 协议格式**（设置页「API 格式」切换，选预设时自动带出）：
 
@@ -192,7 +200,8 @@ Chromium 的 PDF 后端**无法正确嵌入 CFF 轮廓的 web font**，会降级
 $env:PYTHONPATH = 'E:\pythonProject\resume-builder'
 
 python app.py                        # 启动（http://localhost:5000）
-python -m pytest tests/ -q           # 全部测试（163 用例，PDF 用例会真实起 Chromium）
+node scripts/check_js.mjs           # 前端语法检查（或 npm run check）
+python -m pytest tests/ -q           # 全部测试（189 用例，PDF 用例会真实起 Chromium）
 python tests/debug_pdf_fonts.py      # 诊断：PDF 内嵌字体原始信息 + 渲染页面图
 ```
 
@@ -210,7 +219,8 @@ python tests/debug_pdf_fonts.py      # 诊断：PDF 内嵌字体原始信息 + �
 | `test_features.py` | 字体上传 / 自动适应 / HTML 导出 / 版本历史 / 导出字体自检 / photo 安全 |
 | `test_source_pdf.py` | 对照导入：原始 PDF 落盘 / 往返 / 删除清理 / 复制独立 / 逐页渲染 / 安全路径 |
 | `test_original_export.py` | 原格式导出：无修改原样导出 / 修改应用且版式不变 / 删除 redact / 兜底与报错 |
-| `test_llm.py` | AI：配置安全（Key 不泄露）/ 四项能力 / 四种协议格式适配 / 错误路径 / 空库启动 |
+| `test_llm.py` | AI：配置安全（Key 不泄露）/ 四项能力 / 四种协议格式适配 / 流式输出 / 错误路径 / 空库启动 |
+| `test_bundle.py` | 数据安全：自动备份（一致性/跳过/保留份数）/ 恢复 / 全量导出导入往返 / 原始 PDF 打包 |
 
 ### 环境坑（都踩过）
 

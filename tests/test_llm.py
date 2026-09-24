@@ -426,3 +426,138 @@ def test_api_test_connection(client, monkeypatch):
     r = client.post("/api/v1/llm/test")
     assert r.status_code == 200
     assert r.get_json()["ok"] is True
+
+
+# ---------------- 流式输出 ----------------
+
+
+class _FakeStreamBody:
+    """模拟 SSE 响应体（逐行 yield bytes）。"""
+
+    def __init__(self, lines):
+        self._lines = lines
+
+    def __iter__(self):
+        for ln in self._lines:
+            yield ln.encode("utf-8")
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+
+class _FakeStreamResp:
+    def __init__(self, lines):
+        self._body = _FakeStreamBody(lines)
+
+    def __enter__(self):
+        return self._body
+
+    def __exit__(self, *a):
+        return False
+
+
+def _mock_stream(monkeypatch, lines):
+    monkeypatch.setattr(llm, "_open_stream", lambda req, timeout: _FakeStreamResp(lines))
+
+
+def test_chat_stream_openai(monkeypatch):
+    _configured()
+    _mock_stream(monkeypatch, [
+        'data: {"choices":[{"delta":{"content":"你好"}}]}',
+        'data: {"choices":[{"delta":{"content":"，世界"}}]}',
+        "data: [DONE]",
+        "",
+    ])
+    out = "".join(llm.chat_stream([{"role": "user", "content": "hi"}]))
+    assert out == "你好，世界"
+
+
+def test_chat_stream_anthropic(monkeypatch):
+    _configured(format="anthropic")
+    _mock_stream(monkeypatch, [
+        "event: content_block_delta",
+        'data: {"type":"content_block_delta","delta":{"text":"第一条"}}',
+        'data: {"type":"content_block_delta","delta":{"text":"补充"}}',
+        "data: [DONE]",
+    ])
+    out = "".join(llm.chat_stream([{"role": "user", "content": "hi"}]))
+    assert out == "第一条补充"
+
+
+def test_chat_stream_gemini(monkeypatch):
+    _configured(format="gemini")
+    _mock_stream(monkeypatch, [
+        'data: {"candidates":[{"content":{"parts":[{"text":"Gem"}]}}]}',
+        'data: {"candidates":[{"content":{"parts":[{"text":"ini"}]}}]}',
+    ])
+    out = "".join(llm.chat_stream([{"role": "user", "content": "hi"}]))
+    assert out == "Gemini"
+
+
+def test_chat_stream_empty_raises(monkeypatch):
+    _configured()
+    _mock_stream(monkeypatch, ["data: [DONE]"])
+    with pytest.raises(RuntimeError, match="未返回任何内容"):
+        list(llm.chat_stream([{"role": "user", "content": "hi"}]))
+
+
+def test_chat_stream_unconfigured():
+    with pytest.raises(ValueError, match="尚未配置"):
+        list(llm.chat_stream([{"role": "user", "content": "hi"}]))
+
+
+def test_polish_with_on_chunk(monkeypatch):
+    """on_chunk 回调逐段收到增量。"""
+    _configured()
+    _mock_stream(monkeypatch, [
+        'data: {"choices":[{"delta":{"content":"重构架构"}}]}',
+        'data: {"choices":[{"delta":{"content":"，LCP 降至 1.8s"}}]}',
+        "data: [DONE]",
+    ])
+    seen = []
+    r = llm.polish_text("负责架构", on_chunk=lambda c: seen.append(c))
+    assert seen == ["重构架构", "，LCP 降至 1.8s"]
+    assert r["result"] == "重构架构，LCP 降至 1.8s"
+
+
+def test_api_stream_polish(client, monkeypatch):
+    """SSE 端点：chunk 事件 + done 结构化结果。"""
+    _configured()
+    _mock_stream(monkeypatch, [
+        'data: {"choices":[{"delta":{"content":"改写后"}}]}',
+        "data: [DONE]",
+    ])
+    r = client.post("/api/v1/llm/stream",
+                    json={"capability": "polish", "text": "原文", "context": ""})
+    assert r.status_code == 200
+    assert "text/event-stream" in r.content_type
+    body = r.get_data(as_text=True)
+    assert '"chunk": "改写后"' in body
+    assert '"done": true' in body
+    assert '"result"' in body
+
+
+def test_api_stream_bad_capability(client):
+    r = client.post("/api/v1/llm/stream", json={"capability": "suggest"})
+    assert r.status_code == 400
+
+
+def test_api_stream_generate(client, monkeypatch):
+    _configured()
+    payload = {"profile": {"name": "流式生成", "title": "工程师", "summary": ""},
+               "workExperiences": [], "projects": [], "educations": [],
+               "skills": {"featuredSkills": [], "descriptions": []},
+               "selfEvaluation": {"descriptions": []}}
+    _mock_stream(monkeypatch, [
+        'data: {"choices":[{"delta":{"content":' + json.dumps(json.dumps(payload, ensure_ascii=False)) + '}}]}',
+        "data: [DONE]",
+    ])
+    r = client.post("/api/v1/llm/stream",
+                    json={"capability": "generate", "brief": {"title": "工程师"}})
+    assert r.status_code == 200
+    body = r.get_data(as_text=True)
+    assert '"done": true' in body
+    assert "流式生成" in body

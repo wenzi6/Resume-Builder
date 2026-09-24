@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * 入口：初始化、顶栏、模板选择、快捷键、全局装配。
  */
@@ -15,6 +16,7 @@ import {
   saveSectionFromDialog,
   bindConfirmDialog,
   bindVersionsDialog,
+  bindDataSafety,
   confirmDialog,
 } from "./components/sidebar.js";
 import { renderDesignPanel, syncDesignValues } from "./components/designPanel.js";
@@ -45,6 +47,7 @@ async function boot() {
   applyI18n();
   bindConfirmDialog();
   bindVersionsDialog();
+  bindDataSafety();
   bindImportDialog();
   bindPaginationControls();
   bindPreviewFrame();
@@ -356,7 +359,10 @@ function bindTabs() {
         p.classList.toggle("active", p.id === `pane-${tab.dataset.tab}`);
         p.hidden = p.id !== `pane-${tab.dataset.tab}`;
       });
-      if (tab.dataset.tab === "docs") renderDocList(document.getElementById("docList"));
+      if (tab.dataset.tab === "docs") {
+        renderDocList(document.getElementById("docList"));
+        import("./components/sidebar.js").then((m) => m.renderBackupList());
+      }
       if (tab.dataset.tab === "design") renderDesignPanel(document.getElementById("pane-design"));
     });
   });

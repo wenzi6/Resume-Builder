@@ -1,3 +1,4 @@
+// @ts-check
 /** 轻量 Toast 通知。 */
 
 const root = document.getElementById("toastRoot");

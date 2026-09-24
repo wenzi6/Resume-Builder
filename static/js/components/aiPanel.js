@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * AI 助手：生成简历 / 修改建议 / JD 定制 / 设置 + 字段级润色对话框。
  *
@@ -172,6 +173,64 @@ function ensureConfigured() {
   return false;
 }
 
+/* ---------------- 流式调用 ---------------- */
+
+/**
+ * SSE 流式调用 LLM 能力。
+ * @param {string} capability polish | generate
+ * @param {Object} params
+ * @param {{onChunk?: Function, onDone?: Function, onError?: Function}} handlers
+ */
+async function streamLlm(capability, params, handlers = {}) {
+  let resp;
+  try {
+    resp = await fetch("/api/v1/llm/stream", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ capability, ...params }),
+    });
+  } catch (e) {
+    handlers.onError?.("网络错误：" + e.message);
+    return;
+  }
+  if (!resp.ok || !resp.body) {
+    let msg = `HTTP ${resp.status}`;
+    try {
+      msg = (await resp.json()).error || msg;
+    } catch { /* ignore */ }
+    handlers.onError?.(msg);
+    return;
+  }
+  const reader = resp.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let idx;
+      while ((idx = buf.indexOf("\n\n")) >= 0) {
+        const line = buf.slice(0, idx).trim();
+        buf = buf.slice(idx + 2);
+        if (!line.startsWith("data:")) continue;
+        let msg;
+        try {
+          msg = JSON.parse(line.slice(5));
+        } catch {
+          continue;
+        }
+        if (msg.chunk) handlers.onChunk?.(msg.chunk);
+        else if (msg.done) { handlers.onDone?.(msg.result); return; }
+        else if (msg.error) { handlers.onError?.(msg.error); return; }
+      }
+    }
+    handlers.onError?.("连接中断");
+  } catch (e) {
+    handlers.onError?.(e.message);
+  }
+}
+
 /* ---------------- 生成简历 ---------------- */
 
 async function runGenerate() {
@@ -190,18 +249,25 @@ async function runGenerate() {
     setStatus("aiGenStatus", "请填写目标岗位", "error");
     return;
   }
-  busy(btn, "生成中…（约 10-30 秒）");
-  setStatus("aiGenStatus", "AI 正在生成，请稍候…");
+  busy(btn, "生成中…");
+  let received = 0;
+  setStatus("aiGenStatus", "AI 正在生成…");
   document.getElementById("aiGenResult").hidden = true;
-  try {
-    const r = await api.postJson("/api/v1/llm/generate", { brief });
-    renderGenerateResult(r.content);
-    setStatus("aiGenStatus", "✅ 生成完成", "ok");
-  } catch (e) {
-    setStatus("aiGenStatus", e.message, "error");
-  } finally {
-    unbusy(btn);
-  }
+  await streamLlm("generate", { brief }, {
+    onChunk: (chunk) => {
+      received += chunk.length;
+      setStatus("aiGenStatus", `生成中… 已接收 ${received} 字`);
+    },
+    onDone: (r) => {
+      renderGenerateResult(r.content);
+      setStatus("aiGenStatus", "✅ 生成完成", "ok");
+      unbusy(btn);
+    },
+    onError: (msg) => {
+      setStatus("aiGenStatus", msg, "error");
+      unbusy(btn);
+    },
+  });
 }
 
 function renderGenerateResult(content) {
@@ -466,27 +532,29 @@ async function requestPolish() {
   btn.disabled = true;
   retry.disabled = true;
   const ta = document.getElementById("polishResult");
-  ta.value = "AI 思考中…";
+  ta.value = "";
   try {
     // 配置未加载过先拉一次
     if (!aiCfg) aiCfg = await api.getJson("/api/v1/llm/config");
     if (!aiCfg.configured) {
-      ta.value = "";
       document.getElementById("polishOverlay").hidden = true;
       openAiPanel("settings");
       setStatus("aiConfigStatus", "请先完成 AI 配置", "error");
       toast("请先配置 AI 服务", "error");
       return;
     }
-    const r = await api.postJson("/api/v1/llm/polish", {
-      text: polishTarget.original,
-      context: polishTarget.context,
+    await streamLlm("polish", { text: polishTarget.original, context: polishTarget.context }, {
+      onChunk: (chunk) => {
+        ta.value += chunk;   // 流式逐字显示
+      },
+      onDone: () => {
+        btn.disabled = false;
+      },
+      onError: (msg) => {
+        if (!ta.value) ta.value = "";
+        toastError("润色失败：" + msg);
+      },
     });
-    ta.value = r.result;
-    btn.disabled = false;
-  } catch (e) {
-    ta.value = "";
-    toastError("润色失败：" + e.message);
   } finally {
     retry.disabled = false;
   }

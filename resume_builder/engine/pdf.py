@@ -1,11 +1,18 @@
-"""PDF 渲染与分页测量（子进程封装）。"""
+"""PDF 渲染与分页测量（常驻 worker 进程池 + 单次子进程兜底）。
+
+性能设计：Chromium 冷启动约 1-2s，是 PDF / 分页测量的主要延迟。
+因此默认走「常驻 worker」——一个长寿的 pdf_worker.py serve 进程，
+Chromium 只启动一次，请求间复用（JSON 行协议 over stdin/stdout）。
+worker 异常退出时自动重启一次；仍失败则回退到单次子进程模式。
+"""
 from __future__ import annotations
 
-import io
+import atexit
 import json
-import os
 import subprocess
 import sys
+import threading
+import time
 import uuid
 from pathlib import Path
 from typing import Any
@@ -15,6 +22,9 @@ from ..config import BASE_DIR, OUTPUT_DIR, PDF_TIMEOUT
 WORKER = BASE_DIR / "pdf_worker.py"
 RENDER_DIR = OUTPUT_DIR / ".render"
 
+WORKER_READY_TIMEOUT = 45   # worker 启动 + Chromium 就绪的等待上限（秒）
+WORKER_MAX_LIFETIME = 3600 * 8  # worker 最长存活（超时主动轮换，防内存膨胀）
+
 
 def _ensure_render_dir() -> Path:
     RENDER_DIR.mkdir(parents=True, exist_ok=True)
@@ -23,8 +33,6 @@ def _ensure_render_dir() -> Path:
 
 def sweep_stale_renders(max_age_s: int = 3600) -> int:
     """清理渲染临时目录中的过期文件（进程被 kill 时的残留）。"""
-    import time
-
     if not RENDER_DIR.exists():
         return 0
     now = time.time()
@@ -46,6 +54,9 @@ def _write_html(html: str) -> Path:
     return path
 
 
+# ---------------------------------------------------------------- 单次子进程（兜底）
+
+
 def _run_worker(args: list[str]) -> subprocess.CompletedProcess:
     return subprocess.run(
         [sys.executable, str(WORKER), *args],
@@ -56,24 +67,192 @@ def _run_worker(args: list[str]) -> subprocess.CompletedProcess:
     )
 
 
+def _measure_once(html_path: Path) -> dict[str, Any]:
+    result = _run_worker(["measure", str(html_path)])
+    if result.returncode != 0:
+        msg = (result.stderr or result.stdout or "").strip()
+        raise RuntimeError(msg or "分页测量失败")
+    lines = [ln for ln in result.stdout.strip().splitlines() if ln.strip()]
+    return json.loads(lines[-1])
+
+
+def _pdf_once(html_path: Path, pdf_path: Path, breaks: list | None) -> None:
+    args = ["pdf", str(html_path), str(pdf_path)]
+    if breaks:
+        args.append(json.dumps(breaks))
+    result = _run_worker(args)
+    if result.returncode != 0 or not pdf_path.exists():
+        msg = (result.stderr or result.stdout or "").strip()
+        raise RuntimeError(msg or "PDF 渲染失败")
+
+
+# ---------------------------------------------------------------- 常驻 worker 池
+
+
+class _WorkerPool:
+    """管理一个常驻 pdf_worker serve 进程（线程安全，单请求串行）。"""
+
+    def __init__(self) -> None:
+        self._proc: subprocess.Popen | None = None
+        self._lock = threading.RLock()  # 可重入：request() 持锁时会调用 close()
+        self._next_id = 0
+        self._started_at = 0.0
+        self._broken = False  # 启动失败一次后永久走兜底，避免反复重试
+
+    # ---- 生命周期 ----
+
+    def _spawn(self) -> subprocess.Popen:
+        proc = subprocess.Popen(
+            [sys.executable, str(WORKER), "serve"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            bufsize=1,  # 行缓冲
+            cwd=str(BASE_DIR),
+        )
+        line = proc.stdout.readline() if proc.stdout else ""
+        try:
+            hello = json.loads(line) if line.strip() else {}
+        except json.JSONDecodeError:
+            hello = {}
+        if not hello.get("ready"):
+            self._kill(proc)
+            raise RuntimeError(hello.get("error") or "PDF worker 启动失败")
+        self._proc = proc
+        self._started_at = time.time()
+        return proc
+
+    def _kill(self, proc: subprocess.Popen | None) -> None:
+        if not proc:
+            return
+        try:
+            if proc.stdin:
+                proc.stdin.close()
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            proc.terminate()
+            proc.wait(timeout=3)
+        except Exception:  # noqa: BLE001
+            try:
+                proc.kill()
+            except Exception:  # noqa: BLE001
+                pass
+
+    def _alive(self) -> bool:
+        return self._proc is not None and self._proc.poll() is None
+
+    def _readline(self, proc: subprocess.Popen, timeout: float) -> str | None:
+        """带超时的 readline（Windows 无 select，用读线程 + join）。"""
+        box: dict[str, str] = {}
+
+        def _read() -> None:
+            try:
+                box["line"] = proc.stdout.readline() if proc.stdout else ""
+            except Exception:  # noqa: BLE001
+                box["line"] = ""
+
+        t = threading.Thread(target=_read, daemon=True)
+        t.start()
+        t.join(timeout)
+        if t.is_alive():
+            return None
+        return box.get("line", "")
+
+    def close(self) -> None:
+        with self._lock:
+            proc, self._proc = self._proc, None
+            self._kill(proc)
+
+    # ---- 请求 ----
+
+    def request(self, payload: dict, timeout: float) -> dict:
+        """发送请求并等待响应；worker 失效时自动重启一次，再失败走兜底。"""
+        with self._lock:
+            if self._broken:
+                raise _Fallback()
+            try:
+                return self._request_once(payload, timeout)
+            except _WorkerDead:
+                pass
+            # 重启一次再试
+            try:
+                self.close()
+                return self._request_once(payload, timeout)
+            except _WorkerDead as e:
+                self._broken = True
+                raise _Fallback() from e
+
+    def _request_once(self, payload: dict, timeout: float) -> dict:
+        try:
+            proc = self._proc if self._alive() else self._spawn()
+        except Exception as e:  # noqa: BLE001 启动失败按「worker 死」处理
+            raise _WorkerDead(f"worker 启动失败：{e}") from e
+        # 超长存活主动轮换，避免内存缓慢增长
+        if time.time() - self._started_at > WORKER_MAX_LIFETIME:
+            self.close()
+            proc = self._spawn()
+
+        self._next_id += 1
+        rid = self._next_id
+        req = {"id": rid, **payload}
+        try:
+            proc.stdin.write(json.dumps(req, ensure_ascii=False) + "\n")
+            proc.stdin.flush()
+        except Exception as e:  # noqa: BLE001 管道断裂 → worker 死
+            raise _WorkerDead(str(e)) from e
+
+        line = self._readline(proc, timeout)
+        if line is None:
+            self._kill(proc)
+            self._proc = None
+            raise _WorkerDead("worker 响应超时")
+        if not line.strip():
+            self._proc = None
+            raise _WorkerDead("worker 进程退出")
+        try:
+            resp = json.loads(line)
+        except json.JSONDecodeError as e:
+            raise _WorkerDead(f"worker 响应解析失败：{line[:120]}") from e
+        if resp.get("id") != rid:
+            raise _WorkerDead(f"worker 响应 id 不匹配：{resp.get('id')} != {rid}")
+        if not resp.get("ok"):
+            raise RuntimeError(resp.get("error") or "worker 处理失败")
+        return resp
+
+
+class _WorkerDead(Exception):
+    """worker 进程不可用（需要重启或兜底）。"""
+
+
+class _Fallback(Exception):
+    """常驻 worker 不可用，调用方应走单次子进程。"""
+
+
+_pool = _WorkerPool()
+atexit.register(_pool.close)
+
+
+# ---------------------------------------------------------------- 对外 API
+
+
 def measure_pages(doc: dict[str, Any]) -> dict[str, Any]:
     """测量简历页数与各区块落位，返回分页信息。"""
     from .renderer import render_for_pdf
 
     html_path = _write_html(render_for_pdf(doc))
     try:
-        result = _run_worker(["measure", str(html_path)])
-        if result.returncode != 0:
-            msg = (result.stderr or result.stdout or "").strip()
-            raise RuntimeError(msg or "分页测量失败")
-        # worker 最后一行是 JSON
-        lines = [ln for ln in result.stdout.strip().splitlines() if ln.strip()]
-        return json.loads(lines[-1])
+        try:
+            resp = _pool.request({"mode": "measure", "html_path": str(html_path)}, PDF_TIMEOUT)
+            return resp["result"]
+        except _Fallback:
+            return _measure_once(html_path)
     finally:
         html_path.unlink(missing_ok=True)
 
 
-def render_pdf_bytes(doc: dict[str, Any]) -> bytes:
+def render_pdf_bytes(doc: dict[str, Any], breaks: list | None = None) -> bytes:
     """渲染简历为 PDF 字节流。"""
     from .renderer import render_for_pdf
 
@@ -81,10 +260,16 @@ def render_pdf_bytes(doc: dict[str, Any]) -> bytes:
     html_path = _write_html(render_for_pdf(doc))
     pdf_path = d / f"resume_{uuid.uuid4().hex}.pdf"
     try:
-        result = _run_worker(["pdf", str(html_path), str(pdf_path)])
-        if result.returncode != 0 or not pdf_path.exists():
-            msg = (result.stderr or result.stdout or "").strip()
-            raise RuntimeError(msg or "PDF 渲染失败")
+        try:
+            _pool.request(
+                {"mode": "pdf", "html_path": str(html_path),
+                 "pdf_path": str(pdf_path), "breaks": breaks or []},
+                PDF_TIMEOUT,
+            )
+        except _Fallback:
+            _pdf_once(html_path, pdf_path, breaks)
+        if not pdf_path.exists():
+            raise RuntimeError("PDF 渲染失败：未生成文件")
         data = pdf_path.read_bytes()
         if not data.startswith(b"%PDF"):
             raise RuntimeError("PDF 输出无效")

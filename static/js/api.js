@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * API 封装：统一 fetch、错误处理、JSON / blob 下载。
  */
