@@ -1,0 +1,59 @@
+/* ============ 经典通排 ============ */
+.resume-classic { --r-col-sidebar: 33%; }
+
+/* 居中页眉 */
+.resume-classic .r-profile {
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 0;
+}
+.resume-classic .r-contacts { justify-content: center; margin-top: 8px; }
+.resume-classic .r-name { letter-spacing: 0.08em; }
+.resume-classic .r-role { margin-top: 3px; }
+.resume-classic .r-summary {
+  border-top: 2px solid var(--r-accent);
+  margin-top: 12px;
+  padding-top: 9px;
+}
+
+/* 区块标题：底部通栏细线 + 主题色短划线 */
+.resume-classic .rsec-title {
+  border-left: none;
+  padding-left: 0;
+  padding-bottom: 4px;
+  margin-bottom: 9px;
+  border-bottom: 1px solid var(--r-line);
+  position: relative;
+}
+.resume-classic .rsec-title::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: -1px;
+  width: 34px;
+  height: 2px;
+  background: var(--r-accent);
+}
+
+/* 条目 */
+.resume-classic .ritem-head { align-items: baseline; }
+.resume-classic .ritem-title { font-size: var(--r-fs-h3); }
+.resume-classic .ritem + .ritem {
+  padding-top: var(--r-item-gap);
+  border-top: 1px dashed var(--r-line);
+  margin-top: var(--r-item-gap);
+}
+
+/* 空状态 */
+.resume-classic .r-empty,
+.r-empty {
+  color: var(--r-text-mute);
+  text-align: center;
+  padding: 60px 0;
+  font-size: var(--r-fs-small);
+}
+
+@media print {
+  .resume-classic .ritem + .ritem { border-top: none; padding-top: 0; }
+}

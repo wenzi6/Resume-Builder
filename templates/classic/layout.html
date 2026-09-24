@@ -1,0 +1,6 @@
+{# 经典通排：单栏 + 居中页眉 #}
+<div class="r-sheet {{ body_class }}">
+  {{ top_sections }}
+  {{ main_sections }}
+  {% if not top_sections and not main_sections %}<div class="r-empty">在左侧填写内容，这里会实时显示简历</div>{% endif %}
+</div>

@@ -1,0 +1,9 @@
+{
+  "name": "ATS 纯文本",
+  "description": "零装饰零颜色，标准字体单栏，机器解析成功率最高",
+  "author": "Resume Studio",
+  "version": "2.0",
+  "layout": "single",
+  "atsSafe": true,
+  "defaultDesign": { "accent": "#111827", "fontFamily": "sans" }
+}

@@ -1,0 +1,64 @@
+/* ============ 极简 ============ */
+.resume-minimal { --r-col-sidebar: 33%; --r-col-gap: 24px; }
+
+/* 更松的呼吸感 */
+.resume-minimal .r-sheet { line-height: calc(var(--r-lh) + 0.1); }
+.resume-minimal .rsec { margin-bottom: calc(var(--r-gap) + 4px); }
+
+/* 页眉：左对齐，姓名与职位同行基线 */
+.resume-minimal .r-profile { align-items: flex-end; gap: 14px; }
+.resume-minimal .r-name { font-weight: 600; letter-spacing: 0.02em; }
+.resume-minimal .r-role { color: var(--r-text-mute); font-weight: 400; }
+.resume-minimal .r-contacts {
+  margin-top: 8px;
+  gap: 3px 10px;
+  color: var(--r-text-mute);
+  font-size: var(--r-fs-small);
+}
+.resume-minimal .r-ico { display: none; }      /* 极简不显示图标 */
+.resume-minimal .r-contact + .r-contact::before {
+  content: "·";
+  margin-right: 10px;
+  color: var(--r-line);
+}
+.resume-minimal .r-summary { border-top: none; padding-top: 0; margin-top: 10px; }
+
+/* 区块标题：小号 + 字距 + 细线 */
+.resume-minimal .rsec-title {
+  border-left: none;
+  padding-left: 0;
+  font-size: var(--r-fs-h3);
+  font-weight: 600;
+  letter-spacing: 0.22em;
+  color: var(--r-text-mute);
+  margin-bottom: 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--r-line);
+}
+
+/* 条目 */
+.resume-minimal .ritem-title { font-weight: 600; }
+.resume-minimal .ritem-sub { color: var(--r-text-mute); font-weight: 400; }
+.resume-minimal .ritem-date { color: var(--r-text-mute); letter-spacing: 0.02em; }
+.resume-minimal .rlist li { color: var(--r-text-soft); padding-left: 10px; }
+.resume-minimal .rlist li::before {
+  width: 3px; height: 3px;
+  background: var(--r-text-mute);
+  top: 0.68em;
+}
+
+/* 技能：评分改为细线进度 */
+.resume-minimal .rrate i { width: 14px; height: 2px; border-radius: 0; background: var(--r-line); }
+.resume-minimal .rrate i.on { background: var(--r-text); }
+.resume-minimal .rtag {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--r-text-soft);
+}
+.resume-minimal .rtag + .rtag::before { content: "·"; margin: 0 6px 0 2px; color: var(--r-line); }
+.resume-minimal .rtag-row { margin-top: 5px; }
+
+@media print {
+  .resume-minimal .rsec { margin-bottom: var(--r-gap); }
+}

@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# 运行时数据（SQLite 自动生成）
+data/*.db
+data/*.db-journal
+
+# 导出 / 渲染临时产物
+output/
+
+# v1 归档（不参与运行）
+legacy/
+
+# CFF OTF 会被 Chromium 降级为 Type3，fonts/ 只允许 glyf TTF
+fonts/*.otf
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

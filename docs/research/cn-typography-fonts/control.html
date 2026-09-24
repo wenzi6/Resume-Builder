@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>对照实验：可变字体单字重声明</title>
+<style>
+/* 对照1：可变字体按单字重声明（不写 100 900 范围） */
+@font-face {
+  font-family: 'VF-Single';
+  src: url('./fonts/NotoSansSC-VF.ttf') format('truetype');
+  font-weight: normal;
+}
+/* 对照2：可变字体声明 font-variation-settings */
+@font-face {
+  font-family: 'VF-Settings';
+  src: url('./fonts/NotoSansSC-VF.ttf') format('truetype-variations');
+  font-weight: normal;
+}
+.vfs { font-family: 'VF-Single'; font-size: 14pt; }
+.vfset { font-family: 'VF-Settings'; font-size: 14pt; font-variation-settings: 'wght' 700; }
+</style>
+</head>
+<body>
+<div class="vfs">可变字体单字重声明：中文简历测试 ABC123</div>
+<div class="vfset">可变字体variation设置：中文简历测试 ABC123</div>
+</body>
+</html>

@@ -1,0 +1,76 @@
+/* ============ 专业衬线 ============ */
+.resume-professional { --r-col-sidebar: 33%; }
+
+/* 衬线正文 + 更松的行距，正式稳重 */
+.resume-professional .r-sheet { line-height: calc(var(--r-lh) + 0.08); }
+
+/* 页眉：居中 + 双下划线 */
+.resume-professional .r-profile {
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 0;
+  padding-bottom: 10px;
+  border-bottom: 3px double var(--r-accent);
+}
+.resume-professional .r-name { letter-spacing: 0.14em; font-weight: 700; }
+.resume-professional .r-role {
+  color: var(--r-text-soft);
+  font-weight: 400;
+  letter-spacing: 0.1em;
+  margin-top: 4px;
+}
+.resume-professional .r-contacts {
+  justify-content: center;
+  margin-top: 7px;
+  color: var(--r-text-soft);
+  font-size: var(--r-fs-small);
+}
+.resume-professional .r-ico { color: var(--r-accent); }
+.resume-professional .r-summary {
+  border-top: none;
+  margin-top: 11px;
+  padding-top: 0;
+  text-align: justify;
+}
+
+/* 区块标题：全大写感 + 上下双线 */
+.resume-professional .rsec-title {
+  border-left: none;
+  padding-left: 0;
+  font-size: var(--r-fs-h2);
+  letter-spacing: 0.14em;
+  margin-bottom: 10px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--r-accent);
+}
+.resume-professional .rsec-title::first-letter { color: var(--r-accent); }
+
+/* 条目 */
+.resume-professional .ritem-title { font-weight: 700; letter-spacing: 0.02em; }
+.resume-professional .ritem-sub { color: var(--r-text-soft); font-weight: 400; font-style: italic; }
+.resume-professional .ritem-date { font-variant-numeric: tabular-nums; }
+.resume-professional .rlist li { color: var(--r-text-soft); }
+.resume-professional .rlist li::before {
+  border-radius: 0;
+  width: 4px; height: 1.5px;
+  background: var(--r-accent);
+  top: 0.72em;
+}
+
+/* 技能 */
+.resume-professional .rskill-name { font-weight: 400; }
+.resume-professional .rrate i.on { background: var(--r-accent); }
+.resume-professional .rtag {
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--r-accent-line);
+  border-radius: 0;
+  padding: 0 0 1px;
+  color: var(--r-text-soft);
+}
+.resume-professional .rtag + .rtag { margin-left: 4px; }
+
+@media print {
+  .resume-professional .r-profile { border-bottom-width: 2px; }
+}

@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>字体嵌入测试</title>
+<style>
+@font-face {
+  font-family: 'SHSC-Rel';
+  src: url('./fonts/SourceHanSansSC-Medium.ttf') format('truetype');
+  font-weight: normal;
+}
+@font-face {
+  font-family: 'SHSC-Abs';
+  src: url('file:///C:/Windows/Fonts/SourceHanSansSC-Medium.ttf') format('truetype');
+  font-weight: normal;
+}
+@font-face {
+  font-family: 'NotoVF';
+  src: url('./fonts/NotoSansSC-VF.ttf') format('truetype');
+  font-weight: 100 900;
+}
+body { font-size: 14pt; }
+div { margin: 6pt 0; }
+.rel  { font-family: 'SHSC-Rel'; }
+.abs  { font-family: 'SHSC-Abs'; }
+.vf400 { font-family: 'NotoVF'; font-weight: 400; }
+.vf700 { font-family: 'NotoVF'; font-weight: 700; }
+.simsun { font-family: 'SimSun'; }
+.simhei { font-family: 'SimHei'; }
+.msyh { font-family: 'Microsoft YaHei'; }
+</style>
+</head>
+<body>
+<div class="rel">相对路径思源黑体：中文简历排版测试 ABC123</div>
+<div class="abs">绝对路径思源黑体：中文简历排版测试 ABC123</div>
+<div class="vf400">可变字体Regular：中文简历排版测试 ABC123</div>
+<div class="vf700">可变字体Bold：中文简历排版测试 ABC123</div>
+<div class="simsun">系统宋体：中文简历排版测试 ABC123</div>
+<div class="simhei">系统黑体：中文简历排版测试 ABC123</div>
+<div class="msyh">微软雅黑：中文简历排版测试 ABC123</div>
+</body>
+</html>

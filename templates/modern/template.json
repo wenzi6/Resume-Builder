@@ -1,0 +1,14 @@
+{
+  "name": "现代双栏",
+  "description": "左侧边栏 + 主栏，色带页眉，信息密度高",
+  "author": "Resume Studio",
+  "version": "2.0",
+  "layout": "sidebar-left",
+  "atsSafe": false,
+  "slots": {
+    "top": ["profile"],
+    "sidebar": ["skills", "educations", "selfEvaluation"],
+    "main": ["workExperiences", "projects"]
+  },
+  "defaultDesign": { "accent": "#0f766e" }
+}

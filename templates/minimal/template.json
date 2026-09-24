@@ -1,0 +1,9 @@
+{
+  "name": "极简",
+  "description": "细线分隔，大量留白，克制的黑白灰",
+  "author": "Resume Studio",
+  "version": "2.0",
+  "layout": "single",
+  "atsSafe": true,
+  "defaultDesign": { "accent": "#111827" }
+}

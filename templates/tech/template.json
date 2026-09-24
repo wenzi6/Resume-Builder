@@ -1,0 +1,12 @@
+{
+  "name": "技术深色",
+  "description": "深色渐变页眉 + 分区卡片，适合互联网/技术岗",
+  "author": "Resume Studio",
+  "version": "2.0",
+  "layout": "header-band",
+  "atsSafe": false,
+  "slots": {
+    "top": ["profile"]
+  },
+  "defaultDesign": { "accent": "#1d4ed8" }
+}

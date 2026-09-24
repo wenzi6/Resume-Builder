@@ -1,0 +1,75 @@
+/* ============ 现代双栏 ============ */
+.resume-modern { --r-col-sidebar: 33%; --r-col-gap: 22px; }
+
+/* 页眉色带：通栏（抵消 .r-sheet 内边距） */
+.resume-modern .rsec-profile {
+  margin: calc(var(--r-margin) * -1) calc(var(--r-margin) * -1) var(--r-gap);
+  padding: 20px var(--r-margin) 18px;
+  background: linear-gradient(120deg, var(--r-accent-deep) 0%, var(--r-accent) 100%);
+  color: #fff;
+}
+.resume-modern .r-profile { flex-direction: row; align-items: center; gap: 18px; }
+.resume-modern .r-name { color: #fff; }
+.resume-modern .r-role { color: rgba(255, 255, 255, 0.92); }
+.resume-modern .r-contacts { color: rgba(255, 255, 255, 0.85); margin-top: 7px; }
+.resume-modern .r-contact-t { color: inherit; }
+.resume-modern .r-ico { color: rgba(255, 255, 255, 0.75); }
+.resume-modern .r-summary {
+  border-top: 1px solid rgba(255, 255, 255, 0.28);
+  color: rgba(255, 255, 255, 0.9);
+  margin-top: 12px;
+  padding-top: 9px;
+}
+.resume-modern .r-photo {
+  width: 76px; height: 96px;
+  border: 2px solid rgba(255, 255, 255, 0.55);
+}
+
+/* 侧栏 */
+.resume-modern .r-sidebar {
+  background: var(--r-accent-soft);
+  border-radius: 6px;
+  padding: 14px 15px;
+}
+.resume-modern .r-sidebar .rsec { margin-bottom: 16px; }
+.resume-modern .r-sidebar .rsec:last-child { margin-bottom: 0; }
+.resume-modern .r-sidebar .rsec-title {
+  border-left: none;
+  padding-left: 0;
+  font-size: var(--r-fs-h3);
+  letter-spacing: 0.08em;
+  color: var(--r-accent-deep);
+  margin-bottom: 7px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--r-accent-line);
+}
+.resume-modern .r-sidebar .ritem + .ritem { margin-top: 7px; }
+.resume-modern .r-sidebar .ritem-head { flex-direction: column; align-items: flex-start; gap: 1px; }
+.resume-modern .r-sidebar .ritem-date { order: -1; }
+
+/* 主栏 */
+.resume-modern .r-main .rsec-title {
+  border-left: none;
+  padding-left: 0;
+  padding-bottom: 4px;
+  margin-bottom: 9px;
+  border-bottom: 2px solid var(--r-accent);
+  letter-spacing: 0.04em;
+}
+.resume-modern .r-main .ritem { position: relative; padding-left: 14px; }
+.resume-modern .r-main .ritem::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.42em;
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  background: var(--r-accent);
+}
+.resume-modern .rskill { justify-content: flex-start; gap: 8px; }
+.resume-modern .rrate { margin-left: auto; }
+
+@media print {
+  .resume-modern .r-sidebar { border-radius: 0; }
+  .resume-modern .rsec-profile { border-radius: 0; }
+}

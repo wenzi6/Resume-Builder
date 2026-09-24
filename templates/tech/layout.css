@@ -1,0 +1,96 @@
+/* ============ 技术深色 ============ */
+.resume-tech { --r-col-sidebar: 33%; --r-col-gap: 20px; }
+
+/* 深色渐变页眉：通栏 */
+.resume-tech .rsec-profile {
+  margin: calc(var(--r-margin) * -1) calc(var(--r-margin) * -1) calc(var(--r-gap) + 4px);
+  padding: 22px var(--r-margin) 20px;
+  background: linear-gradient(135deg, #0b1220 0%, var(--r-accent-deep) 55%, var(--r-accent) 100%);
+  color: #f8fafc;
+}
+.resume-tech .r-profile { flex-direction: row; align-items: center; gap: 20px; }
+.resume-tech .r-profile-text { position: relative; }
+.resume-tech .r-name { color: #fff; letter-spacing: 0.03em; }
+.resume-tech .r-role { color: #93c5fd; font-weight: 500; letter-spacing: 0.06em; }
+.resume-tech .r-contacts { color: rgba(226, 232, 240, 0.85); margin-top: 8px; gap: 4px 16px; }
+.resume-tech .r-contact-t { color: inherit; font-variant-numeric: tabular-nums; }
+.resume-tech .r-ico { color: rgba(147, 197, 253, 0.9); }
+.resume-tech .r-summary {
+  border-top: 1px solid rgba(148, 163, 184, 0.3);
+  color: rgba(226, 232, 240, 0.88);
+  margin-top: 12px;
+  padding-top: 9px;
+}
+.resume-tech .r-photo { border-radius: 4px; border: 1px solid rgba(255, 255, 255, 0.25); }
+
+/* 区块标题：方块标记 + 等宽感 */
+.resume-tech .rsec-title {
+  border-left: none;
+  padding-left: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  letter-spacing: 0.05em;
+}
+.resume-tech .rsec-title::before {
+  content: "";
+  flex: none;
+  width: 4px;
+  height: 1em;
+  background: var(--r-accent);
+  border-radius: 1px;
+}
+.resume-tech .rsec-title::after {
+  content: "";
+  flex: 1 1 auto;
+  height: 1px;
+  background: linear-gradient(90deg, var(--r-accent-line), transparent);
+}
+
+/* 条目：左侧时间轴 */
+.resume-tech .ritem { position: relative; padding-left: 16px; }
+.resume-tech .ritem::before {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 0.5em;
+  bottom: -2px;
+  width: 1px;
+  background: var(--r-line);
+}
+.resume-tech .ritem:last-child::before { display: none; }
+.resume-tech .ritem::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.52em;
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--r-accent);
+  box-shadow: 0 0 0 2px #fff;
+}
+.resume-tech .ritem-date {
+  font-family: "Consolas", "Courier New", "Noto Sans SC", monospace;
+  font-size: var(--r-fs-small);
+  color: var(--r-accent);
+  background: var(--r-accent-soft);
+  border-radius: 3px;
+  padding: 0 6px;
+}
+.resume-tech .rlist li::before {
+  border-radius: 0;
+  width: 4px; height: 1.5px;
+  background: var(--r-accent);
+  top: 0.72em;
+}
+.resume-tech .rtag {
+  font-family: "Consolas", "Courier New", "Noto Sans SC", monospace;
+  font-size: var(--r-fs-small);
+}
+.resume-tech .rrate i { width: 5px; height: 5px; }
+.resume-tech .rrate i.on { background: var(--r-accent); }
+
+@media print {
+  .resume-tech .ritem::before { bottom: 0; }
+  .resume-tech .rsec-profile { border-radius: 0; }
+}

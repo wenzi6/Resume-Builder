@@ -1,0 +1,9 @@
+{
+  "name": "专业衬线",
+  "description": "宋体正文 + 双线标题，正式稳重，适合国企/学术/金融",
+  "author": "Resume Studio",
+  "version": "2.0",
+  "layout": "single",
+  "atsSafe": true,
+  "defaultDesign": { "accent": "#7c2d12", "fontFamily": "serif" }
+}

@@ -1,0 +1,73 @@
+/* ============ ATS 纯文本 ============ */
+/* 目标：让 Workday / Taleo / Greenhouse 等解析器零误差读取。
+   零颜色、零背景、零图标、零装饰边框，标准字体单栏。 */
+
+.resume-ats-plain .r-sheet {
+  --r-accent: #000000 !important;
+  --r-accent-soft: #ffffff !important;
+  --r-accent-line: #cccccc !important;
+  --r-accent-deep: #000000 !important;
+  --r-text: #000000 !important;
+  --r-text-soft: #000000 !important;
+  --r-text-mute: #333333 !important;
+  --r-line: #cccccc !important;
+  font-family: Arial, Helvetica, "Noto Sans SC", sans-serif !important;
+}
+
+/* 页眉：纯文本左对齐 */
+.resume-ats-plain .r-profile {
+  flex-direction: column;
+  align-items: flex-start;
+  text-align: left;
+  gap: 0;
+}
+.resume-ats-plain .r-name { font-size: calc(16pt * var(--r-scale)); font-weight: 700; }
+.resume-ats-plain .r-role { color: #000; font-weight: 400; }
+.resume-ats-plain .r-contacts { margin-top: 5px; gap: 2px 0; flex-direction: column; align-items: flex-start; }
+.resume-ats-plain .r-contact { white-space: normal; }
+.resume-ats-plain .r-ico { display: none !important; }   /* 图标对 ATS 是噪声 */
+.resume-ats-plain .r-contact + .r-contact::before {
+  content: "";
+  display: none;
+}
+.resume-ats-plain .r-summary { border-top: 1px solid #000; margin-top: 9px; padding-top: 6px; color: #000; }
+.resume-ats-plain .r-photo { display: none !important; }  /* ATS 不建议照片 */
+
+/* 区块标题：标准加粗，仅此而已 */
+.resume-ats-plain .rsec-title {
+  border-left: none !important;
+  padding-left: 0 !important;
+  font-size: calc(12pt * var(--r-scale));
+  font-weight: 700;
+  letter-spacing: 0;
+  margin-bottom: 6px;
+  padding-bottom: 2px;
+  border-bottom: 1px solid #000;
+}
+.resume-ats-plain .rsec-title::before,
+.resume-ats-plain .rsec-title::after { content: none !important; display: none !important; }
+
+/* 条目 */
+.resume-ats-plain .ritem::before,
+.resume-ats-plain .ritem::after { content: none !important; display: none !important; }
+.resume-ats-plain .ritem { padding-left: 0 !important; }
+.resume-ats-plain .ritem-title { font-weight: 700; }
+.resume-ats-plain .ritem-sub { color: #000; font-weight: 400; }
+.resume-ats-plain .ritem-date { color: #000; font-weight: 400; }
+
+/* 列表：标准圆点 */
+.resume-ats-plain .rlist { list-style: disc outside; margin-left: 16px; }
+.resume-ats-plain .rlist li { padding-left: 0; color: #000; }
+.resume-ats-plain .rlist li::before { content: none !important; display: none !important; }
+
+/* 技能：评分条隐藏，标签转纯文本 */
+.resume-ats-plain .rrate { display: none !important; }
+.resume-ats-plain .rskill { justify-content: flex-start; }
+.resume-ats-plain .rtag {
+  background: none !important;
+  border: none !important;
+  padding: 0 !important;
+  color: #000 !important;
+  font-size: var(--r-fs-body) !important;
+}
+.resume-ats-plain .rtag + .rtag::before { content: ", "; color: #000; }
