@@ -72,6 +72,18 @@ def _list_html(items: Any, cls: str = "rlist") -> str:
 # ---------------------------------------------------------------- 个人信息
 
 
+def _safe_photo_src(src: str) -> bool:
+    """照片地址只允许 http(s) 链接或站内 / 路径（防 file:// 等本地文件读取）。"""
+    src = src.strip()
+    if not src:
+        return False
+    if src.startswith(("http://", "https://")):
+        return True
+    if src.startswith("/") and not src.startswith("//") and ".." not in src:
+        return True
+    return False
+
+
 def render_profile(section: dict, content: dict, design: dict) -> str:
     p = content.get("profile")
     if not isinstance(p, dict):
@@ -97,8 +109,9 @@ def render_profile(section: dict, content: dict, design: dict) -> str:
     contact_html = f'<div class="r-contacts">{"".join(contacts)}</div>' if contacts else ""
 
     photo = ""
-    if design.get("showPhoto") and typo.tidy(str(p.get("photo") or "")):
-        src = html.escape(str(p.get("photo")).strip(), quote=True)
+    photo_src = str(p.get("photo") or "").strip()
+    if design.get("showPhoto") and _safe_photo_src(photo_src):
+        src = html.escape(photo_src, quote=True)
         photo = f'<div class="r-photo"><img src="{src}" alt=""/></div>'
 
     summary_lines = typo.split_lines(str(p.get("summary") or ""))

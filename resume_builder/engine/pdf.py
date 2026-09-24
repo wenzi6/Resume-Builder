@@ -21,6 +21,24 @@ def _ensure_render_dir() -> Path:
     return RENDER_DIR
 
 
+def sweep_stale_renders(max_age_s: int = 3600) -> int:
+    """清理渲染临时目录中的过期文件（进程被 kill 时的残留）。"""
+    import time
+
+    if not RENDER_DIR.exists():
+        return 0
+    now = time.time()
+    removed = 0
+    for p in RENDER_DIR.iterdir():
+        try:
+            if p.is_file() and now - p.stat().st_mtime > max_age_s:
+                p.unlink()
+                removed += 1
+        except OSError:
+            continue
+    return removed
+
+
 def _write_html(html: str) -> Path:
     d = _ensure_render_dir()
     path = d / f"render_{uuid.uuid4().hex}.html"

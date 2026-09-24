@@ -5,6 +5,7 @@
 import { store } from "../store.js";
 import { api, postRender } from "../api.js";
 import { toastError } from "./toast.js";
+import { t } from "../i18n.js";
 import { injectPaginationOverlay } from "./pagination.js";
 
 const frame = () => document.getElementById("previewFrame");
@@ -102,13 +103,13 @@ export function renderPageInfo() {
   const warn = document.getElementById("pageWarn");
   const info = store.state.pageInfo;
   if (!info) {
-    badge.textContent = "测量中…";
+    badge.textContent = t("preview.measuring");
     badge.classList.remove("over");
     warn.textContent = "";
     return;
   }
   const n = info.pageCount || 1;
-  badge.textContent = `共 ${n} 页`;
+  badge.textContent = t("preview.page", { n });
   badge.classList.toggle("over", n > 1);
 
   const warns = [];

@@ -24,14 +24,14 @@ python app.py
 |---|---|
 | 顶栏 | 简历重命名、模板切换（6 套，含 ATS 徽章）、导入、JSON 编辑、导出 PDF / Word / JSON |
 | 左栏 · 区块 | 区块树：拖拽 / 箭头排序、显隐切换、重命名、删除；内置 7 区块 + 自定义区块（列表型 / 单块型，字段可配） |
-| 左栏 · 设计 | 字体（黑体 / 宋体）、字号缩放、行距、区块间距、页边距、主题色（预设 + 取色器）、日期位置、照片开关、一键压缩到一页 |
-| 左栏 · 简历 | 多简历管理：新建（示例 / 空白）、切换、复制、删除 |
+| 左栏 · 设计 | 字体（黑体 / 宋体 / **上传自有字体**）、字号缩放、行距、区块间距、页边距、主题色（预设 + 取色器）、日期位置、照片开关、一键压缩到一页、**⚡ 自动适应一页**（迭代压缩直到排进一页） |
+| 左栏 · 简历 | 多简历管理：新建（示例 / 空白）、切换、复制、删除、**历史版本**（自动快照，可恢复） |
 | 中栏 | schema 驱动的表单：文本 / 日期 / 多行 / 列表（增删上下移）/ 技能星级，条目卡片增删排序 |
 | 右栏 | iframe 实时预览（300ms 防抖）、页码指示与警告、缩放、**分页编辑模式** |
 
-**编辑即所见**：表单变更 → 防抖 300ms 重新渲染 → 800ms 自动保存（后端 + localStorage 双写，刷新可恢复）。`Ctrl+S` 立即保存，`Ctrl+E` 导出 PDF。
+**编辑即所见**：表单变更 → 防抖 300ms 重新渲染 → 800ms 自动保存（后端 + localStorage 双写，刷新可恢复）。`Ctrl+S` 立即保存，`Ctrl+E` 导出 PDF，`Ctrl+Z` / `Ctrl+Y` 撤销 / 重做（以编辑突发为粒度）。
 
-**分页编辑模式**：测量每个区块的落位，在预览中画出虚线分页线；点区块右上角「在此分页」写入手动分页点；「应用建议分页」一键采用后端建议（起始位置落在页面底部 12% 内的区块）。
+**分页编辑模式**：测量每个区块的落位，在预览中画出虚线分页线（位置按打印坐标精确反算，手动分页点也算在内）；点区块右上角「在此分页」写入手动分页点；「应用建议分页」一键采用后端建议（起始位置落在页面底部 12% 内的区块）。
 
 ### 模板体系（6 套）
 
@@ -55,9 +55,11 @@ python app.py
 
 ### 导入导出
 
-- **导出**：PDF（Playwright + `@page` A4）、Word（python-docx，字号 / 行距 / 边距与 HTML 一致）、JSON（含信封格式）
-- **导入**：JSON（兼容 v1 旧格式，自动迁移）、PDF（pdfplumber 解析为结构化文档）、模板（.html / .zip，含路径穿越防护）
-- **持久化**：SQLite 多简历管理（`data/resumes.db`，运行时自动生成）
+- **导出**：PDF（Playwright + `@page` A4）、Word（python-docx，字号 / 行距 / 边距与 HTML 一致）、JSON（含信封格式）、**自包含 HTML**（字体 base64 内嵌，离线可开）
+- **导出质量自检**：每次导出 PDF 后校验内嵌字体——发现 Type3 降级（用户导入的模板引用了不可嵌入的字体）会通过响应头返回警告，编辑器即时提示
+- **导入**：JSON（兼容 v1 旧格式，自动迁移，换发新 id 不覆盖已有简历）、PDF（pdfplumber 解析为结构化文档）、模板（.html / .zip，含路径穿越防护）
+- **自有字体**：上传 .ttf / .otf → 自动检测 CFF 并转换为 glyf + 剥离部首 cmap → 注册进设计面板，PDF 导出时正常嵌入为 Type0
+- **持久化**：SQLite（WAL 模式）多简历管理 + 每份文档最近 20 份历史快照（`data/resumes.db`，运行时自动生成）
 
 ---
 
@@ -73,23 +75,27 @@ resume_builder/
 ├── registry.py               # 内置区块注册表（7 区块）★单一事实来源
 ├── sample.py                 # 两份示例数据
 ├── engine/
-│   ├── tokens.py             # 设计参数→CSS 变量、@font-face、@page  ★字体清单在此
+│   ├── tokens.py             # 设计参数→CSS 变量、@font-face（内置+用户字体）、@page  ★字体清单在此
+│   ├── font_convert.py       # CFF→glyf 转换 + 部首 cmap 剥离（tools 的 CLI 是其封装）
 │   ├── typo.py               # 盘古之白 / 日期归一化 / 分隔符（Jinja filters）
 │   ├── base_css.py           # 共享基础样式 + 打印分页规则
 │   ├── sections.py           # 区块 → 规范化 HTML（.rsec/.ritem/.rlist 语义标记）
 │   ├── renderer.py           # Jinja2 渲染 + slot 分配 + 分页锚点
-│   └── pdf.py                # 子进程封装 + 分页测量 + 字体校验
+│   └── pdf.py                # 子进程封装 + 分页测量 + 字体校验 + 临时文件清理
 ├── exporters/
 │   ├── docx.py               # Word 导出
+│   ├── html_export.py        # 自包含 HTML（字体 base64 内嵌）
 │   └── json_io.py            # JSON 导入导出（含 v1 迁移）
 ├── services/
-│   ├── documents.py          # SQLite 持久化
+│   ├── documents.py          # SQLite 持久化（WAL + 版本快照）
+│   ├── font_manager.py       # 用户自有字体：转换 + 清洗 + 注册
+│   ├── autofit.py            # 一键适应一页（迭代压缩）
 │   └── pdf_import.py         # PDF → 结构化文档
 └── api/                      # /api/v1/* Blueprint + /api/* 旧版兼容层
 templates/                    # 6 套模板（template.json + layout.html + layout.css）
-static/                       # 前端编辑器（editor.html / editor.css / js/ ES Modules）
-fonts/                        # Noto Sans/Serif SC 静态 TTF（OFL 许可）
-tests/                        # pytest 套件（78 用例）
+static/                       # 前端编辑器（editor.html / editor.css / js/ ES Modules，含 i18n）
+fonts/                        # Noto Sans/Serif SC 静态 TTF（OFL 许可）+ user/ 用户上传
+tests/                        # pytest 套件（108 用例）
 tools/                        # 字体维护工具（otf2ttf / strip_radical_cmap）
 legacy/                       # v1 全部源码归档（不参与运行，未纳入 git）
 ```
@@ -123,7 +129,13 @@ SectionConfig = {"key","title","type":"object|array|simple|skills","fields":[Fie
 | `/api/v1/render` | POST | `{document}` → 预览 HTML |
 | `/api/v1/page-info` | POST | 页数 + 区块落位 + 建议分页点 + 警告（含手动分页点换算） |
 | `/api/v1/auto-pagebreaks` | POST | 只返回建议分页点 |
-| `/api/v1/export/{pdf,docx,json}` | POST | 导出（支持 `{id}` 或 `{document}`） |
+| `/api/v1/auto-fit` | POST | 一键适应一页：迭代压缩直到页数 ≤ 1 |
+| `/api/v1/fonts` | GET | 用户自有字体列表 |
+| `/api/v1/fonts/upload` | POST | 上传字体（自动转换 + 清洗 + 注册） |
+| `/api/v1/fonts/<file>` | DELETE | 删除用户字体 |
+| `/api/v1/documents/<id>/versions` | GET | 文档历史快照 |
+| `/api/v1/documents/<id>/versions/<vid>/restore` | POST | 恢复历史版本 |
+| `/api/v1/export/{pdf,docx,json,html}` | POST | 导出（支持 `{id}` 或 `{document}`） |
 | `/api/v1/import/json` | POST | JSON 导入（含 v1 迁移，换发新 id） |
 | `/api/v1/import/pdf` | POST | PDF 解析成结构化文档 |
 | `/api/v1/import-template` | POST | 模板导入（.html/.zip，有穿越防护） |
@@ -150,7 +162,7 @@ Chromium 的 PDF 后端**无法正确嵌入 CFF 轮廓的 web font**，会降级
 $env:PYTHONPATH = 'E:\pythonProject\resume-builder'
 
 python app.py                        # 启动（http://localhost:5000）
-python -m pytest tests/ -q           # 全部测试（78 用例，PDF 用例会真实起 Chromium）
+python -m pytest tests/ -q           # 全部测试（108 用例，PDF 用例会真实起 Chromium）
 python tests/debug_pdf_fonts.py      # 诊断：PDF 内嵌字体原始信息 + 渲染页面图
 ```
 
@@ -163,6 +175,9 @@ python tests/debug_pdf_fonts.py      # 诊断：PDF 内嵌字体原始信息 + �
 | `test_pdf_fonts.py` | **P0 字体回归**：Type0 子集 + 中文可检索 + file:// 路径 + 目录无 OTF |
 | `test_pagination.py` | 1/2/3 页页数、无空白页、手动分页换算、标题不落页底 |
 | `test_ats.py` | ats-plain 的 PDF（pymupdf + pdfplumber 双库）/ DOCX 文本完整提取 |
+| `test_import_pdf.py` | PDF 导入：自家管线生成样本 → 解析回结构化数据 → 坏文件优雅失败 |
+| `test_visual_regression.py` | 视觉回归：6 模板位图与基线像素对比（`REGEN_BASELINES=1` 更新基线） |
+| `test_features.py` | 字体上传 / 自动适应 / HTML 导出 / 版本历史 / 导出字体自检 / photo 安全 |
 
 ### 环境坑（都踩过）
 

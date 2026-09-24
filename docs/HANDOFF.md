@@ -15,12 +15,13 @@
 | 事项 | 状态 |
 |---|---|
 | PDF 中文字体 Type3 降级（原 P0 阻塞） | ✅ **已解决**：CFF OTF → glyf TTF + 剥离部首 cmap，全模板 Type0、中文可检索 |
-| 前端编辑器（`static/`） | ✅ **已从零完成**：11 个文件，全部交互经真实浏览器验证 |
-| 正式测试套件 | ✅ **pytest 78 用例全绿**（含字体 / 分页 / ATS / 迁移回归） |
-| 视觉走查 | ✅ 6 套模板 × 2 份示例 → PDF → PNG 逐套检查通过 |
-| README / git init / 清理 | ✅ 已完成（87 文件入库，`.gitignore` 规范） |
+| 前端编辑器（`static/`） | ✅ **已从零完成**：12 个文件，全部交互经真实浏览器验证 |
+| 正式测试套件 | ✅ **pytest 108 用例全绿**（字体 / 分页 / ATS / 迁移 / PDF 导入 / 视觉回归 / 新功能回归） |
+| 视觉走查 | ✅ 6 套模板 → PDF → PNG 逐套检查通过，且有基线像素回归测试 |
+| 优化轮（导出自检 / 自动适应 / 自有字体 / 版本历史 / HTML 导出 / undo / i18n / CI） | ✅ **已完成并经浏览器 10/10 走查**，详见 §3.0 |
+| README / git init / 清理 | ✅ 已完成（`.gitignore` 规范，含 CI 工作流） |
 
-**下一个 Agent 要做的事**：只剩 **Phase 2 产品化**（§4.2）：JD 关键词匹配 / ATS 检查、LLM 润色、模板预览图。用户已确认的技术决策见 §2，**不要重新讨论**。
+**下一个 Agent 要做的事**：只剩 **Phase 2 产品化剩余项**（§4.2）：JD 关键词匹配 / ATS 检查、LLM 润色、模板预览图。用户已确认的技术决策见 §2，**不要重新讨论**。
 
 ---
 
@@ -51,6 +52,22 @@
 | 旧版 `/api/*` 兼容层 6 端点 | ✅ 全部桥接成功 |
 | 编辑器导入 PDF / 模板 | ✅ 后端单测通过（前端弹窗交互已走查） |
 
+### 3.0 优化轮新增能力（2026-09-24 晚，全部经真实浏览器验证）
+
+| 能力 | 后端 | 前端 |
+|---|---|---|
+| 导出 PDF 字体自检 | `api/export.py` `_pdf_quality_warnings()` → `X-Resume-Warnings` 响应头 | `api.js postDownload` 读取并 toast |
+| 一键适应一页 | `services/autofit.py` 压缩阶梯迭代测量（行距→字号→间距→边距） | 设计面板「⚡ 自动适应一页」 |
+| 用户自有字体 | `services/font_manager.py`（上传→CFF 转换→部首清洗→注册）+ `api/fonts.py` | 设计面板字体组（列表 / 上传 / 使用 / 删除） |
+| 历史版本 | `services/documents.py` `document_versions` 表（每文档 20 份快照）+ WAL | 简历列表「⏱」→ 版本弹窗（恢复） |
+| HTML 自包含导出 | `exporters/html_export.py`（字体 base64 内嵌） | 顶栏「存 HTML」 |
+| 撤销 / 重做 | —（纯前端） | `store.js` 编辑突发快照 + Ctrl+Z / Ctrl+Y |
+| 分页线精确化 | `pdf_worker.py` 返回 `effTop` / `breaks` | `pagination.js` 打印坐标反算 |
+| i18n（中 / 英） | — | `static/js/i18n.js` + 顶栏「EN / 中」 |
+| 临时文件清理 | `engine/pdf.py sweep_stale_renders()`（启动时清扫 >1h 残留） | — |
+| photo 安全 | `sections.py _safe_photo_src()`（仅 http(s) / 站内路径） | — |
+| CI | `.github/workflows/ci.yml`（Windows + Playwright） | — |
+
 **修过的坑（代码已验证，勿重复排查）**：
 
 | # | 症状 | 根因 | 修复 |
@@ -62,6 +79,11 @@
 | 5 | tech 模板出现 Type3 | 等宽字体栈 `ui-monospace, "Cascadia Mono", "Consolas", monospace` 前两个回退不可嵌入 | 改 `"Consolas", "Courier New", "Noto Sans SC", monospace` |
 | 6 | 页码徽章不计手动分页 | measure JS 只按 scrollHeight 算页数，`.r-pagebreak` 高度为 0 | 累计页尾浪费模型换算有效坐标 |
 | 7 | `verify_pdf_fonts` 永远 ok | Type3 的 basefont 是空串被 `if basefont:` 过滤 | 不过滤空名 + 要求提取出真正汉字（`[\u4e00-\u9fff]`） |
+| 8 | 表单改名后 Ctrl+Z 无效 | 撤销换了文档对象但表单不重渲染，输入框显示旧值 | `setDocument` 发 `doc-swapped` 事件 → 表单 / 区块树重画 |
+| 9 | undo 拍到的是变更后的值 | `touch()` 在 mutate 之后调用，快照已是新值 | 改为「突发静默后固化 `_lastStable`，突发开始把它入栈」 |
+| 10 | 分页模式不画线 | 进入时 `pageInfo` 非空（过期的 1 页数据）就不重新测量 | 进入分页模式**总是**重新测量；结果更新时重画覆盖层 |
+| 11 | 压缩阶梯 0.86/0.84/0.82/0.80 四档空转 | schema 把 fontScale 硬钳到 ≥0.90 | `DESIGN_LIMITS.fontScale` 下限放宽到 0.80（8.4pt 仍是可读下限） |
+| 12 | `api.getJson is not a function` | `api` 对象没挂基础方法，designPanel / sidebar 直接调 | api 对象补 `getJson/postJson/putJson/del` |
 
 ---
 
@@ -78,7 +100,10 @@ Chromium PDF 后端对 CFF 轮廓 web font 降级为 Type3。解决链：
 
 **回归测试**：`tests/test_pdf_fonts.py`（改字体相关代码后必跑）。
 
-### 4.2 Phase 2 功能（按建议顺序）
+### 4.2 Phase 2 剩余功能（按建议顺序）
+
+> 优化轮已完成：自有字体上传、自动适应一页、历史版本、HTML 导出、导出自检、undo、i18n、CI。
+> **已决策保留**：`/api/*` 旧版兼容层继续保留（用户可能还开着 v1 页面，删除是产品决策不是技术决策）。
 
 1. **JD 关键词匹配 / ATS 检查**（`services/analyze.py` + `api/analyze.py`）
    - 输入 JD 文本 → 提取关键词（权重：硬技能 > 教育 > 职位 > 软技能）→ 与简历比对 → 匹配率 + 缺失建议
@@ -88,8 +113,7 @@ Chromium PDF 后端对 CFF 轮廓 web font 降级为 Type3。解决链：
    - OpenAI 兼容协议（base_url / api_key / model 用户可配，**存本地配置，不要提交 key**）
    - 能力：bullet 按 Google XYZ 公式润色、按 JD 定制改写、量化成果建议
    - 前端入口：表单字段旁的「AI 润色」按钮 + 设置弹窗
-3. 模板预览图：每套模板一张 `preview.png`，模板菜单显示
-4. 多文档管理 UI 增强（后端 `services/documents.py` 已就绪，前端「简历」页签已可用基础版）
+3. 模板预览图：每套模板一张 `preview.png`，模板菜单显示（可复用 `test_visual_regression` 的渲染逻辑生成）
 
 ---
 

@@ -318,6 +318,15 @@ function docItem(d) {
   head.appendChild(el("span", "doc-item-title", d.title || "未命名简历"));
   const acts = el("span", "doc-item-acts");
 
+  const hist = el("button", "sec-act", "⏱");
+  hist.type = "button";
+  hist.title = "历史版本";
+  hist.addEventListener("click", (e) => {
+    e.stopPropagation();
+    openVersionsDialog(d.id);
+  });
+  acts.appendChild(hist);
+
   const dup = el("button", "sec-act", "⧉");
   dup.type = "button";
   dup.title = "复制";
@@ -386,6 +395,67 @@ function docItem(d) {
   });
 
   return li;
+}
+
+/* ---------------- 历史版本 ---------------- */
+
+let versionsDocId = null;
+
+export async function openVersionsDialog(docId) {
+  versionsDocId = docId;
+  const overlay = document.getElementById("versionsOverlay");
+  overlay.hidden = false;
+  const list = document.getElementById("versionList");
+  list.textContent = "";
+  list.appendChild(el("li", "field-hint", "加载中…"));
+  try {
+    const data = await api.getJson(`/api/v1/documents/${docId}/versions`);
+    list.textContent = "";
+    if (!data.versions?.length) {
+      list.appendChild(el("li", "field-hint", "还没有历史版本"));
+      return;
+    }
+    for (const v of data.versions) {
+      const li = el("li", "doc-item");
+      const head = el("div", "doc-item-head");
+      head.appendChild(el("span", "doc-item-title", v.title || "未命名"));
+      const btn = el("button", "btn btn-sm", "恢复");
+      btn.type = "button";
+      btn.addEventListener("click", async () => {
+        const ok = await confirmDialog(
+          `确定恢复到 ${new Date(v.savedAt * 1000).toLocaleString("zh-CN")} 的版本？当前内容会被替换。`);
+        if (!ok) return;
+        try {
+          const { document: doc } = await api.postJson(
+            `/api/v1/documents/${docId}/versions/${v.id}/restore`, {});
+          store.setDocument(doc);
+          const { renderAll } = await import("./jsonEditor.js");
+          renderAll();
+          overlay.hidden = true;
+          toastSuccess("已恢复历史版本");
+        } catch (e) {
+          toastError("恢复失败：" + e.message);
+        }
+      });
+      head.appendChild(btn);
+      li.appendChild(head);
+      const meta = el("div", "doc-item-meta");
+      meta.appendChild(el("span", null, new Date(v.savedAt * 1000).toLocaleString("zh-CN")));
+      li.appendChild(meta);
+      list.appendChild(li);
+    }
+  } catch (e) {
+    list.textContent = "";
+    list.appendChild(el("li", "field-hint", "加载失败：" + e.message));
+  }
+}
+
+export function bindVersionsDialog() {
+  const overlay = document.getElementById("versionsOverlay");
+  document.getElementById("btnCloseVersions").addEventListener("click", () => (overlay.hidden = true));
+  overlay.addEventListener("click", (e) => {
+    if (e.target === overlay) overlay.hidden = true;
+  });
 }
 
 /* ---------------- 通用确认弹窗 ---------------- */

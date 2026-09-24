@@ -35,6 +35,12 @@ class Store {
     this._saving = false;
     this._lastSavedAt = null;
     this._saveError = null;
+    // 撤销 / 重做：以「编辑突发」为粒度，空闲 1.5s 后的第一次变更会先存快照
+    this._history = [];
+    this._redoStack = [];
+    this._histTimer = null;
+    this._histLock = false;
+    this._lastStable = null;   // 上一个编辑突发结束时的稳定快照（撤销的基准）
   }
 
   // ---------- 订阅 ----------
@@ -58,6 +64,9 @@ class Store {
     this.state.documents = documents || [];
     this.state.doc = doc || null;
     this.state.loading = false;
+    this._lastStable = doc ? deepClone(doc) : null;
+    this._history = [];
+    this._redoStack = [];
     this.emit("init");
     this.emit("doc", this.state.doc);
   }
@@ -78,12 +87,65 @@ class Store {
   /** 标记内容已变更：调度预览刷新与自动保存。 */
   touch(options = {}) {
     if (!this.state.doc) return;
+    if (!this._histLock) this._checkpoint();
     this.state.doc.updatedAt = Date.now() / 1000;
     this._dirty = true;
     this.emit("doc", this.state.doc);
     this._schedulePreview();
     this._scheduleSave();
     if (options.pageInfo) this._schedulePageInfo();
+  }
+
+  /* ---------- 撤销 / 重做 ---------- */
+
+  /** 突发开始的第一次变更：把「上一个稳定状态」入栈。
+   *  稳定状态在突发静默 1.5s 后固化，因此它一定是本批次变更之前的文档。 */
+  _checkpoint() {
+    if (!this.state.doc || this._histTimer) return;
+    const base = this._lastStable || deepClone(this.state.doc);
+    this._history.push(base);
+    if (this._history.length > 50) this._history.shift();
+    this._redoStack = [];
+    this._histTimer = setTimeout(() => {
+      this._histTimer = null;
+      this._lastStable = deepClone(this.state.doc);
+    }, 1500);
+  }
+
+  canUndo() {
+    return this._history.length > 0;
+  }
+
+  canRedo() {
+    return this._redoStack.length > 0;
+  }
+
+  undo() {
+    if (!this._history.length || !this.state.doc) return false;
+    this._redoStack.push(deepClone(this.state.doc));
+    const prev = this._history.pop();
+    this._histLock = true;
+    this.setDocument(prev);
+    this._histLock = false;
+    this._dirty = true;
+    this._scheduleSave();
+    this._schedulePageInfo();
+    this.emit("history");
+    return true;
+  }
+
+  redo() {
+    if (!this._redoStack.length || !this.state.doc) return false;
+    this._history.push(deepClone(this.state.doc));
+    const next = this._redoStack.pop();
+    this._histLock = true;
+    this.setDocument(next);
+    this._histLock = false;
+    this._dirty = true;
+    this._scheduleSave();
+    this._schedulePageInfo();
+    this.emit("history");
+    return true;
   }
 
   /** 仅刷新预览（如缩放、模板切换后强制重渲染）。 */
@@ -194,8 +256,10 @@ class Store {
     this.state.doc = doc;
     this.state.pageInfo = null;
     this._dirty = false;
+    this._lastStable = deepClone(doc);
     this._writeLocal(doc);
     this.emit("doc", doc);
+    this.emit("doc-swapped", doc);
     this.refreshPreview();
   }
 

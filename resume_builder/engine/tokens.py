@@ -27,14 +27,17 @@ FONT_FILES = {
 
 
 def font_face_css(base_url: str) -> str:
-    """生成 @font-face 声明。
+    """生成 @font-face 声明（内置 + 用户上传字体）。
 
     base_url 为字体目录的可访问基地址：
       - 预览模式（HTTP）：'/fonts'
       - PDF 模式（file://）：'file:///E:/.../fonts'
     """
+    from ..services import font_manager
+
+    entries = list(FONT_FILES["sans"] + FONT_FILES["serif"]) + font_manager.user_font_entries()
     rules = []
-    for family, weight, filename in FONT_FILES["sans"] + FONT_FILES["serif"]:
+    for family, weight, filename in entries:
         rules.append(
             "@font-face {\n"
             f"  font-family: '{family}';\n"
@@ -96,6 +99,9 @@ def build_root_css(design: dict[str, Any] | None) -> str:
     on_accent = readable_on(accent)
 
     body_font = FONT_SANS_STACK if d["fontFamily"] == "sans" else FONT_SERIF_STACK
+    if d["fontFamily"] not in ("sans", "serif"):
+        # 用户上传的自有字体：家族名直接作为正文字体栈（回退到内置黑体）
+        body_font = f"'{d['fontFamily']}', 'Noto Sans SC', 'Microsoft YaHei', sans-serif"
     head_font = FONT_SANS_STACK  # 标题始终用黑体，保证层级清晰
 
     vars = {

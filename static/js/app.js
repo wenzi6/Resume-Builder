@@ -4,6 +4,7 @@
 
 import { store } from "./store.js";
 import { api } from "./api.js";
+import { t, getLang, setLang, applyI18n } from "./i18n.js";
 import { toast, toastSuccess, toastError } from "./components/toast.js";
 import { renderForm, scrollToSection } from "./components/form.js";
 import {
@@ -13,9 +14,10 @@ import {
   closeSectionDialog,
   saveSectionFromDialog,
   bindConfirmDialog,
+  bindVersionsDialog,
   confirmDialog,
 } from "./components/sidebar.js";
-import { renderDesignPanel } from "./components/designPanel.js";
+import { renderDesignPanel, syncDesignValues } from "./components/designPanel.js";
 import {
   doRenderPreview,
   bindPreviewFrame,
@@ -31,7 +33,9 @@ import { openJsonEditor, closeJsonEditor, applyJson, bindImportDialog, renderAll
 /* ================= 启动 ================= */
 
 async function boot() {
+  applyI18n();
   bindConfirmDialog();
+  bindVersionsDialog();
   bindImportDialog();
   bindPaginationControls();
   bindPreviewFrame();
@@ -42,6 +46,7 @@ async function boot() {
   bindDialogs();
   bindShortcuts();
   bindStoreEvents();
+  bindLangToggle();
 
   try {
     const [schema, templates, docsData] = await Promise.all([
@@ -94,18 +99,37 @@ function bindStoreEvents() {
     renderTemplateName();
   });
 
+  // 文档整体替换（切换 / 撤销 / 恢复版本）→ 表单与区块树必须重画
+  store.on("doc-swapped", () => {
+    renderForm(document.getElementById("formArea"));
+    renderSectionTree(document.getElementById("sectionTree"));
+    if (!document.getElementById("pane-design").hidden) {
+      renderDesignPanel(document.getElementById("pane-design"));
+    } else {
+      syncDesignValues();
+    }
+  });
+
   store.on("preview", () => doRenderPreview());
 
   store.on("pageinfo", () => refreshPageInfo());
 
-  store.on("pageinfo-result", () => renderPageInfo());
+  store.on("pageinfo-result", () => {
+    renderPageInfo();
+    // 分页模式下测量结果更新（如内容变化后）→ 重画分页线
+    if (store.state.paginationMode) {
+      import("./components/pagination.js").then((m) =>
+        m.injectPaginationOverlay(document.getElementById("previewFrame")));
+    }
+  });
 
   store.on("save-state", (state, msg) => {
     const el = document.getElementById("saveStatus");
     el.className = "save-status " + state;
-    if (state === "saving") el.textContent = "保存中…";
-    else if (state === "saved") el.textContent = `已保存 ${new Date().toLocaleTimeString("zh-CN", { hour12: false })}`;
-    else if (state === "error") el.textContent = "保存失败：" + (msg || "未知错误");
+    if (state === "saving") el.textContent = t("toast.saving");
+    else if (state === "saved") {
+      el.textContent = t("toast.savedAt", { time: new Date().toLocaleTimeString(getLang() === "zh-CN" ? "zh-CN" : "en-US", { hour12: false }) });
+    } else if (state === "error") el.textContent = t("toast.saveFailed", { msg: msg || "?" });
     else el.textContent = "";
   });
 
@@ -129,6 +153,7 @@ function bindTopbar() {
   document.getElementById("btnExportPdf").addEventListener("click", () => exportResume("pdf"));
   document.getElementById("btnExportDocx").addEventListener("click", () => exportResume("docx"));
   document.getElementById("btnExportJson").addEventListener("click", () => exportResume("json"));
+  document.getElementById("btnExportHtml").addEventListener("click", () => exportResume("html"));
 
   document.getElementById("btnJson").addEventListener("click", openJsonEditor);
   document.getElementById("btnApplyJson").addEventListener("click", applyJson);
@@ -175,18 +200,25 @@ async function exportResume(fmt) {
   const info = store.state.pageInfo;
   const name = (doc.title || "resume").replace(/[\\/:*?"<>|]/g, "_");
   try {
+    let warnings = [];
     if (fmt === "pdf") {
       if (info && info.pageCount > 1) {
-        toast(`当前简历共 ${info.pageCount} 页，正在导出…`);
+        toast(t("toast.exporting", { n: info.pageCount }));
       }
-      await postDownloadName("/api/v1/export/pdf", { id: doc.id }, `${name}.pdf`);
-      toastSuccess("PDF 导出成功");
+      warnings = await postDownloadName("/api/v1/export/pdf", { id: doc.id }, `${name}.pdf`);
+      toastSuccess(t("toast.pdfOk"));
     } else if (fmt === "docx") {
-      await postDownloadName("/api/v1/export/docx", { id: doc.id }, `${name}.docx`);
-      toastSuccess("Word 导出成功");
-    } else {
-      await postDownloadName("/api/v1/export/json", { id: doc.id }, `${name}.json`);
-      toastSuccess("JSON 导出成功");
+      warnings = await postDownloadName("/api/v1/export/docx", { id: doc.id }, `${name}.docx`);
+      toastSuccess(t("toast.docxOk"));
+    } else if (fmt === "json") {
+      warnings = await postDownloadName("/api/v1/export/json", { id: doc.id }, `${name}.json`);
+      toastSuccess(t("toast.jsonOk"));
+    } else if (fmt === "html") {
+      warnings = await postDownloadName("/api/v1/export/html", { id: doc.id }, `${name}.html`);
+      toastSuccess(t("toast.htmlOk"));
+    }
+    for (const w of warnings) {
+      toast("⚠️ " + w, "error", 8000);
     }
   } catch (e) {
     toastError(e.message);
@@ -339,14 +371,41 @@ function bindShortcuts() {
   document.addEventListener("keydown", async (e) => {
     const mod = e.ctrlKey || e.metaKey;
     if (!mod) return;
+    // 输入框内保留原生文本撤销
+    const inField = ["INPUT", "TEXTAREA"].includes(document.activeElement?.tagName);
+    if (!inField && e.key.toLowerCase() === "z") {
+      e.preventDefault();
+      if (store.undo()) toast(t("toast.undo"));
+      return;
+    }
+    if (!inField && (e.key.toLowerCase() === "y" || (e.shiftKey && e.key.toLowerCase() === "z"))) {
+      e.preventDefault();
+      if (store.redo()) toast(t("toast.redo"));
+      return;
+    }
     if (e.key.toLowerCase() === "s") {
       e.preventDefault();
       await store.saveNow();
-      toastSuccess("已保存");
+      toastSuccess(t("toast.saved"));
     } else if (e.key.toLowerCase() === "e") {
       e.preventDefault();
       exportResume("pdf");
     }
+  });
+}
+
+/* ================= 语言切换 ================= */
+
+function bindLangToggle() {
+  const btn = document.getElementById("btnLang");
+  if (!btn) return;
+  btn.addEventListener("click", () => {
+    setLang(getLang() === "zh-CN" ? "en" : "zh-CN");
+    applyI18n();
+    // 动态渲染的面板用当前语言重画
+    renderDesignPanel(document.getElementById("pane-design"));
+    renderDocList(document.getElementById("docList"));
+    renderPageInfo();
   });
 }
 

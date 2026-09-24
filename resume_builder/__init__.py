@@ -24,6 +24,13 @@ def create_app() -> Flask:
 
     register_blueprints(app)
 
+    # 用户字体目录 + 渲染临时文件清理
+    from .services import font_manager
+    from .engine.pdf import sweep_stale_renders
+
+    font_manager.ensure_user_fonts_dir()
+    sweep_stale_renders(max_age_s=3600)
+
     # ---- 编辑器与静态资源 ----
     @app.get("/")
     def index():

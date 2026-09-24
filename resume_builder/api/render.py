@@ -46,3 +46,16 @@ def auto_page_breaks():
     except Exception as e:  # noqa: BLE001
         return jsonify({"error": f"分页测量失败：{e}"}), 500
     return jsonify({"pageBreaks": info.get("suggestedBreaks", []), "warnings": info.get("warnings", [])})
+
+
+@bp.post("/auto-fit")
+def auto_fit():
+    """一键适应一页：迭代压缩设计参数直到页数 ≤ 1。"""
+    from ..services import autofit
+
+    doc = _doc_from_request()
+    try:
+        result = autofit.fit_to_one_page(doc)
+    except Exception as e:  # noqa: BLE001
+        return jsonify({"error": f"自动适应失败：{e}"}), 500
+    return jsonify(result)

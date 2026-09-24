@@ -55,8 +55,10 @@ MEASURE_JS = r"""
     return top + shift;
   };
   let _shift = 0;
+  const effBreakTops = [];
   for (const bt of breakTops) {
     const eb = bt + _shift;
+    effBreakTops.push(eb);
     _shift += pageH - (eb % pageH);
   }
 
@@ -73,6 +75,7 @@ MEASURE_JS = r"""
       key: el.getAttribute('data-section') || '',
       top: Math.round(top),
       height: Math.round(h),
+      effTop: Math.round(et),
       startPage: startPage + 1,
       endPage: endPage + 1,
       straddles: startPage !== endPage,
@@ -90,7 +93,8 @@ MEASURE_JS = r"""
     if (posInPage > pageH * 0.88) suggested.push(s.key);
   }
   return { pageCount, pageHeightPx: Math.round(pageH), sections,
-           contentHeight: Math.round(totalH), suggestedBreaks: suggested };
+           contentHeight: Math.round(totalH), suggestedBreaks: suggested,
+           breaks: breakTops.map((t, i) => ({ top: Math.round(t), effTop: Math.round(effBreakTops[i]) })) };
 }
 """
 

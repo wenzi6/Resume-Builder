@@ -1,0 +1,229 @@
+/**
+ * 编辑器界面多语言（zh-CN / en）。
+ *
+ * 覆盖范围：编辑器自身 chrome（静态文案 + 主要动态提示）。
+ * 简历内容字段标签来自后端 schema（中文），不在此翻译范围内。
+ * 用法：t("key") 或 t("key", {name: "x"})；语言偏好持久化在 localStorage。
+ */
+
+const MESSAGES = {
+  "zh-CN": {
+    "app.title": "Resume Studio · 简历编辑器",
+    "topbar.import": "导入",
+    "topbar.json": "JSON",
+    "topbar.saveJson": "存 JSON",
+    "topbar.saveHtml": "存 HTML",
+    "topbar.word": "Word",
+    "topbar.pdf": "导出 PDF",
+    "topbar.lang": "EN",
+    "topbar.langTitle": "Switch to English",
+    "tab.sections": "区块",
+    "tab.design": "设计",
+    "tab.docs": "简历",
+    "sections.manage": "区块管理",
+    "sections.add": "+ 添加区块",
+    "sections.hint": "拖动或使用箭头排序；眼睛图标控制显隐。顺序即简历中的顺序。",
+    "sections.up": "上移",
+    "sections.down": "下移",
+    "sections.hide": "隐藏",
+    "sections.show": "显示",
+    "sections.rename": "重命名",
+    "sections.delete": "删除区块",
+    "design.font": "字体",
+    "design.fontSans": "黑体（通用）",
+    "design.fontSerif": "宋体（正式）",
+    "design.typo": "排版",
+    "design.fontScale": "字号缩放",
+    "design.lineHeight": "行距",
+    "design.sectionGap": "区块间距",
+    "design.pageMargin": "页边距",
+    "design.accent": "主题色",
+    "design.datePhoto": "日期与照片",
+    "design.dateRight": "日期右对齐",
+    "design.dateBelow": "日期在标题下",
+    "design.showPhoto": "显示照片（ATS 场景建议关闭）",
+    "design.compact": "一页压缩",
+    "design.compactLabel": "压缩到一页（自动缩小字号 / 行距 / 间距 / 边距）",
+    "design.autoFit": "⚡ 自动适应一页",
+    "design.autoFitting": "测量中…（需要几秒）",
+    "design.uploadFont": "＋ 上传字体（.ttf / .otf，自动转换并嵌入 PDF）",
+    "design.uploading": "转换中…",
+    "design.noUserFont": "还没有上传自有字体",
+    "design.userFontTitle": "自有字体",
+    "docs.mine": "我的简历",
+    "docs.newSample": "从示例新建",
+    "docs.newBlank": "空白新建",
+    "docs.duplicate": "复制",
+    "docs.delete": "删除",
+    "docs.history": "历史版本",
+    "preview.page": "共 {n} 页",
+    "preview.measuring": "测量中…",
+    "preview.pagination": "分页",
+    "preview.paginationTip": "分页编辑：点击区块右上角「在此分页」按钮设置 / 取消手动分页",
+    "preview.applyBreaks": "应用建议分页",
+    "preview.clearBreaks": "清除全部分页",
+    "preview.done": "完成",
+    "preview.refresh": "刷新预览",
+    "dialog.jsonTitle": "JSON 编辑器",
+    "dialog.apply": "应用",
+    "dialog.close": "关闭",
+    "dialog.importTitle": "导入",
+    "dialog.importJson": "简历 JSON",
+    "dialog.importPdf": "PDF 简历",
+    "dialog.importTemplate": "模板",
+    "dialog.sectionTitle": "添加区块",
+    "dialog.sectionAdd": "添加",
+    "dialog.sectionCancel": "取消",
+    "dialog.confirm": "确认",
+    "dialog.versionsTitle": "历史版本",
+    "dialog.restore": "恢复",
+    "toast.saved": "已保存",
+    "toast.savedAt": "已保存 {time}",
+    "toast.saving": "保存中…",
+    "toast.saveFailed": "保存失败：{msg}",
+    "toast.pdfOk": "PDF 导出成功",
+    "toast.docxOk": "Word 导出成功",
+    "toast.jsonOk": "JSON 导出成功",
+    "toast.htmlOk": "HTML 导出成功（字体已内嵌，可离线打开）",
+    "toast.exporting": "当前简历共 {n} 页，正在导出…",
+    "toast.undo": "已撤销",
+    "toast.redo": "已重做",
+    "toast.autoFitOk": "已压缩 {n} 档，排进一页",
+    "toast.autoFitAlready": "当前已经是一页",
+    "toast.autoFitFail": "已压到下限仍是 {n} 页，建议删减内容",
+    "toast.paginationOn": "已进入分页编辑模式",
+    "toast.paginationOff": "已退出分页编辑模式",
+    "toast.jsonApplied": "已应用 JSON 修改",
+    "toast.fontUploaded": "字体「{name}」已可用{converted}",
+    "toast.fontConverted": "（CFF 已转为 TTF）",
+    "toast.fontDeleted": "字体已删除",
+  },
+  "en": {
+    "app.title": "Resume Studio · Editor",
+    "topbar.import": "Import",
+    "topbar.json": "JSON",
+    "topbar.saveJson": "Save JSON",
+    "topbar.saveHtml": "Save HTML",
+    "topbar.word": "Word",
+    "topbar.pdf": "Export PDF",
+    "topbar.lang": "中",
+    "topbar.langTitle": "切换为中文",
+    "tab.sections": "Sections",
+    "tab.design": "Design",
+    "tab.docs": "Resumes",
+    "sections.manage": "Sections",
+    "sections.add": "+ Add section",
+    "sections.hint": "Drag or use arrows to reorder; the eye icon toggles visibility.",
+    "sections.up": "Move up",
+    "sections.down": "Move down",
+    "sections.hide": "Hide",
+    "sections.show": "Show",
+    "sections.rename": "Rename",
+    "sections.delete": "Delete section",
+    "design.font": "Font",
+    "design.fontSans": "Sans (general)",
+    "design.fontSerif": "Serif (formal)",
+    "design.typo": "Typography",
+    "design.fontScale": "Font scale",
+    "design.lineHeight": "Line height",
+    "design.sectionGap": "Section gap",
+    "design.pageMargin": "Page margin",
+    "design.accent": "Accent color",
+    "design.datePhoto": "Date & photo",
+    "design.dateRight": "Date right",
+    "design.dateBelow": "Date below title",
+    "design.showPhoto": "Show photo (off for ATS)",
+    "design.compact": "One-page fit",
+    "design.compactLabel": "Compact (auto font / line height / gap / margin)",
+    "design.autoFit": "⚡ Auto-fit to one page",
+    "design.autoFitting": "Measuring… (a few seconds)",
+    "design.uploadFont": "+ Upload font (.ttf / .otf, auto-convert & embed)",
+    "design.uploading": "Converting…",
+    "design.noUserFont": "No custom fonts yet",
+    "design.userFontTitle": "Custom fonts",
+    "docs.mine": "My resumes",
+    "docs.newSample": "New from sample",
+    "docs.newBlank": "New blank",
+    "docs.duplicate": "Duplicate",
+    "docs.delete": "Delete",
+    "docs.history": "History",
+    "preview.page": "{n} page(s)",
+    "preview.measuring": "Measuring…",
+    "preview.pagination": "Pagination",
+    "preview.paginationTip": "Pagination: click a section's 「Break here」 button to toggle a manual page break",
+    "preview.applyBreaks": "Apply suggested breaks",
+    "preview.clearBreaks": "Clear all breaks",
+    "preview.done": "Done",
+    "preview.refresh": "Refresh preview",
+    "dialog.jsonTitle": "JSON editor",
+    "dialog.apply": "Apply",
+    "dialog.close": "Close",
+    "dialog.importTitle": "Import",
+    "dialog.importJson": "Resume JSON",
+    "dialog.importPdf": "PDF resume",
+    "dialog.importTemplate": "Template",
+    "dialog.sectionTitle": "Add section",
+    "dialog.sectionAdd": "Add",
+    "dialog.sectionCancel": "Cancel",
+    "dialog.confirm": "Confirm",
+    "dialog.versionsTitle": "Version history",
+    "dialog.restore": "Restore",
+    "toast.saved": "Saved",
+    "toast.savedAt": "Saved {time}",
+    "toast.saving": "Saving…",
+    "toast.saveFailed": "Save failed: {msg}",
+    "toast.pdfOk": "PDF exported",
+    "toast.docxOk": "Word exported",
+    "toast.jsonOk": "JSON exported",
+    "toast.htmlOk": "HTML exported (fonts embedded, opens offline)",
+    "toast.exporting": "Resume has {n} pages, exporting…",
+    "toast.undo": "Undone",
+    "toast.redo": "Redone",
+    "toast.autoFitOk": "Compressed {n} steps to fit one page",
+    "toast.autoFitAlready": "Already one page",
+    "toast.autoFitFail": "Still {n} pages at minimum size; consider trimming content",
+    "toast.paginationOn": "Pagination edit mode on",
+    "toast.paginationOff": "Pagination edit mode off",
+    "toast.jsonApplied": "JSON applied",
+    "toast.fontUploaded": "Font \"{name}\" ready{converted}",
+    "toast.fontConverted": " (CFF converted to TTF)",
+    "toast.fontDeleted": "Font deleted",
+  },
+};
+
+const LS_KEY = "resume-studio:lang";
+let current = localStorage.getItem(LS_KEY) || (navigator.language?.startsWith("zh") ? "zh-CN" : "en");
+
+export function t(key, params) {
+  const dict = MESSAGES[current] || MESSAGES["zh-CN"];
+  let s = dict[key] ?? MESSAGES["zh-CN"][key] ?? key;
+  if (params) {
+    for (const [k, v] of Object.entries(params)) {
+      s = s.replaceAll(`{${k}}`, v);
+    }
+  }
+  return s;
+}
+
+export function getLang() {
+  return current;
+}
+
+export function setLang(lang) {
+  current = MESSAGES[lang] ? lang : "zh-CN";
+  localStorage.setItem(LS_KEY, current);
+}
+
+/** 把文档里带 data-i18n / data-i18n-title 的元素就地翻译。 */
+export function applyI18n(root = document) {
+  root.querySelectorAll("[data-i18n]").forEach((el) => {
+    el.textContent = t(el.dataset.i18n);
+  });
+  root.querySelectorAll("[data-i18n-title]").forEach((el) => {
+    el.title = t(el.dataset.i18nTitle);
+  });
+  root.querySelectorAll("[data-i18n-placeholder]").forEach((el) => {
+    el.placeholder = t(el.dataset.i18nPlaceholder);
+  });
+  document.documentElement.lang = current === "zh-CN" ? "zh-CN" : "en";
+}

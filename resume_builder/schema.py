@@ -29,7 +29,7 @@ DEFAULT_DESIGN: dict[str, Any] = {
 }
 
 DESIGN_LIMITS = {
-    "fontScale": (0.90, 1.15),
+    "fontScale": (0.80, 1.15),   # 下限 0.80：一键适应一页的压缩阶梯需要（8.4pt 仍是可读下限）
     "lineHeight": (1.20, 1.80),
     "sectionGap": (8, 32),
     "pageMargin": (MIN_PAGE_MARGIN_MM, MAX_PAGE_MARGIN_MM),
@@ -63,6 +63,12 @@ def normalize_design(design: dict[str, Any] | None) -> dict[str, Any]:
             d[key] = round(_clamp(design[key], lo, hi), 3)
     if design.get("fontFamily") in ("sans", "serif"):
         d["fontFamily"] = design["fontFamily"]
+    elif isinstance(design.get("fontFamily"), str) and design["fontFamily"]:
+        # 用户上传的自有字体：家族名必须是已注册的
+        from .services.font_manager import valid_families
+
+        if design["fontFamily"] in valid_families():
+            d["fontFamily"] = design["fontFamily"]
     if design.get("dateAlign") in ("right", "below"):
         d["dateAlign"] = design["dateAlign"]
     if isinstance(design.get("accent"), str) and _is_hex_color(design["accent"]):

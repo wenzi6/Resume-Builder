@@ -834,6 +834,25 @@ input[type="range"]::-moz-range-thumb {
   .topbar-right .btn { padding: 6px 8px; }
 }
 
+/* ============ 窄屏适配（堆叠布局，保证可用性） ============ */
+@media (max-width: 1150px) {
+  .app { min-width: 0; height: auto; min-height: 100vh; }
+  body { overflow: auto; }
+  .main {
+    grid-template-columns: 1fr;
+    grid-template-rows: none;
+  }
+  .topbar { flex-wrap: wrap; height: auto; padding: 8px 12px; gap: 8px; }
+  .topbar-left, .topbar-right { flex: 1 1 100%; justify-content: flex-start; }
+  .topbar-center { order: -1; }
+  .panel-left { border-right: none; border-bottom: 1px solid var(--border); }
+  .tab-body { max-height: 40vh; }
+  .editor { padding: 14px; }
+  .preview { border-left: none; }
+  .preview-scroll { overflow-x: auto; }
+  .doc-title { width: 100%; }
+}
+
 /* 滚动条 */
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 5px; border: 2px solid transparent; background-clip: content-box; }

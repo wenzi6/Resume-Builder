@@ -10,6 +10,7 @@
 import { store } from "../store.js";
 import { api } from "../api.js";
 import { toast, toastSuccess } from "./toast.js";
+import { t } from "../i18n.js";
 
 const OVERLAY_STYLE = `
 .rs-pb-lines { position: absolute; inset: 0; pointer-events: none; z-index: 9990; }
@@ -61,12 +62,16 @@ export function injectPaginationOverlay(frameEl) {
   // ---- 分页线 ----
   const info = store.state.pageInfo;
   if (info?.pageHeightPx && info.pageCount > 1) {
+    const pageH = info.pageHeightPx;
+    const breaks = info.breaks || [];
     const lines = doc.createElement("div");
     lines.className = "rs-pb-lines";
     for (let p = 1; p < info.pageCount; p++) {
+      // 打印坐标的页边界 → 屏幕坐标（手动分页点会浪费页尾空间，需反算）
+      const screenY = printToScreen(p * pageH, breaks, pageH);
       const line = doc.createElement("div");
       line.className = "rs-pb-line";
-      line.style.top = `${p * info.pageHeightPx}px`;
+      line.style.top = `${Math.round(screenY)}px`;
       const label = doc.createElement("span");
       label.textContent = `第 ${p} 页 / 第 ${p + 1} 页`;
       line.appendChild(label);
@@ -76,18 +81,33 @@ export function injectPaginationOverlay(frameEl) {
   }
 
   // ---- 每个区块的「在此分页」按钮 ----
-  const breaks = new Set(store.doc?.pageBreaks || []);
+  const breakSet = new Set(store.doc?.pageBreaks || []);
   sheet.querySelectorAll(".rsec[data-section]").forEach((sec) => {
     const key = sec.getAttribute("data-section");
     if (!key) return;
     const btn = doc.createElement("button");
     btn.type = "button";
-    btn.className = "rs-pb-btn" + (breaks.has(key) ? " on" : "");
-    btn.textContent = breaks.has(key) ? "✓ 已分页" : "在此分页";
+    btn.className = "rs-pb-btn" + (breakSet.has(key) ? " on" : "");
+    btn.textContent = breakSet.has(key) ? "✓ 已分页" : "在此分页";
     btn.title = "在该区块前分页";
     btn.addEventListener("click", () => toggleBreak(key, frameEl));
     sec.appendChild(btn);
   });
+}
+
+/** 打印坐标页边界 → 屏幕坐标（effTop 的逆函数，不动点迭代）。 */
+function printToScreen(target, breaks, pageH) {
+  let y = target;
+  for (let i = 0; i < 6; i++) {
+    let shift = 0;
+    for (const b of breaks) {
+      if (b.effTop <= y) shift += pageH - (b.effTop % pageH);
+    }
+    const ny = target - shift;
+    if (Math.abs(ny - y) < 0.5) return ny;
+    y = ny;
+  }
+  return y;
 }
 
 function cleanupPaginationOverlay(frameEl) {
@@ -137,13 +157,11 @@ export async function enterPaginationMode() {
   store.setPaginationMode(true);
   document.getElementById("paginationBar").hidden = false;
   document.getElementById("btnPagination").classList.add("btn-primary");
-  // 确保有最新测量数据
-  if (!store.state.pageInfo) {
-    const { refreshPageInfo } = await import("./preview.js");
-    await refreshPageInfo();
-  }
+  // 总是重新测量：pageInfo 可能是过期内容（如刚改完数据），过期数据会画错分页线
+  const { refreshPageInfo } = await import("./preview.js");
+  await refreshPageInfo();
   injectPaginationOverlay(document.getElementById("previewFrame"));
-  toast("已进入分页编辑模式");
+  toast(t("toast.paginationOn"));
 }
 
 export function exitPaginationMode() {
@@ -152,7 +170,7 @@ export function exitPaginationMode() {
   document.getElementById("btnPagination").classList.remove("btn-primary");
   cleanupPaginationOverlay(document.getElementById("previewFrame"));
   store.saveNow();
-  toastSuccess("已退出分页编辑模式");
+  toastSuccess(t("toast.paginationOff"));
 }
 
 async function applySuggestedBreaks() {

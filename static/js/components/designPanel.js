@@ -4,9 +4,12 @@
  */
 
 import { store } from "../store.js";
+import { api } from "../api.js";
+import { toast, toastSuccess, toastError } from "./toast.js";
+import { t } from "../i18n.js";
 
 const LIMITS = {
-  fontScale: [0.9, 1.15],
+  fontScale: [0.8, 1.15],
   lineHeight: [1.2, 1.8],
   sectionGap: [8, 32],
   pageMargin: [12.7, 25],
@@ -74,7 +77,50 @@ export function renderDesignPanel(container) {
   }
   fontRow.appendChild(fontSeg);
   gFont.appendChild(fontRow);
+
+  // 用户上传的自有字体
+  const userWrap = el("div", "design-row");
+  userWrap.id = "userFontList";
+  userWrap.appendChild(el("div", "field-hint", "正在加载自有字体…"));
+  gFont.appendChild(userWrap);
+  const uploadBtn = el("button", "add-btn", t("design.uploadFont"));
+  uploadBtn.type = "button";
+  uploadBtn.id = "btnUploadFont";
+  uploadBtn.style.marginTop = "6px";
+  const fontInput = el("input");
+  fontInput.type = "file";
+  fontInput.accept = ".ttf,.otf";
+  fontInput.id = "fontFileInput";
+  fontInput.hidden = true;
+  fontInput.addEventListener("change", async () => {
+    const file = fontInput.files[0];
+    if (!file) return;
+    uploadBtn.disabled = true;
+    uploadBtn.textContent = t("design.uploading");
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const resp = await fetch("/api/v1/fonts/upload", { method: "POST", body: fd });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
+      // 自动选用新上传的字体
+      store.doc.design.fontFamily = data.font.family;
+      store.touch();
+      renderDesignPanel(document.getElementById("pane-design"));
+      toastSuccess(t("toast.fontUploaded", { name: data.font.family, converted: data.font.converted ? t("toast.fontConverted") : "" }));
+    } catch (e) {
+      toastError("字体上传失败：" + e.message);
+    } finally {
+      uploadBtn.disabled = false;
+      uploadBtn.textContent = t("design.uploadFont");
+      fontInput.value = "";
+    }
+  });
+  uploadBtn.addEventListener("click", () => fontInput.click());
+  gFont.appendChild(uploadBtn);
+  gFont.appendChild(fontInput);
   container.appendChild(gFont);
+  loadUserFonts(userWrap);
 
   /* ---- 排版 ---- */
   const gTypo = el("div", "design-group");
@@ -177,9 +223,94 @@ export function renderDesignPanel(container) {
   compactRow.appendChild(compactCb);
   compactRow.appendChild(el("span", null, "压缩到一页（自动缩小字号 / 行距 / 间距 / 边距）"));
   gCompact.appendChild(compactRow);
+
+  // 自动适应一页：后端迭代测量，直到 1 页或触底
+  const fitBtn = el("button", "add-btn", t("design.autoFit"));
+  fitBtn.type = "button";
+  fitBtn.id = "btnAutoFit";
+  fitBtn.style.marginTop = "8px";
+  fitBtn.title = "自动迭代压缩字号/行距/间距/边距，直到排进一页";
+  fitBtn.addEventListener("click", async () => {
+    fitBtn.disabled = true;
+    fitBtn.textContent = t("design.autoFitting");
+    try {
+      const result = await api.autoFit(store.doc);
+      if (result.design) {
+        Object.assign(store.doc.design, result.design);
+        store.touch({ pageInfo: true });
+        syncDesignValues();
+      }
+      if (result.fitted) {
+        toastSuccess(result.steps === 0 ? t("toast.autoFitAlready") : t("toast.autoFitOk", { n: result.steps }));
+      } else {
+        toast(t("toast.autoFitFail", { n: result.pageCount }), "error", 6000);
+      }
+    } catch (e) {
+      toastError("自动适应失败：" + e.message);
+    } finally {
+      fitBtn.disabled = false;
+      fitBtn.textContent = t("design.autoFit");
+    }
+  });
+  gCompact.appendChild(fitBtn);
   container.appendChild(gCompact);
 
   syncDesignValues();
+}
+
+/** 加载并渲染用户自有字体列表。 */
+async function loadUserFonts(wrap) {
+  wrap.textContent = "";
+  let data;
+  try {
+    data = await api.getJson("/api/v1/fonts");
+  } catch (e) {
+    wrap.appendChild(el("div", "field-hint", "自有字体加载失败：" + e.message));
+    return;
+  }
+  if (!data.user?.length) {
+    wrap.appendChild(el("div", "field-hint", t("design.noUserFont")));
+    return;
+  }
+  for (const f of data.user) {
+    const row = el("div", "skill-row");
+    const name = el("span", null, `${f.family} · ${f.weight}`);
+    name.style.fontSize = "12px";
+    name.style.flex = "1";
+    name.style.minWidth = "0";
+    name.style.overflow = "hidden";
+    name.style.textOverflow = "ellipsis";
+    name.style.whiteSpace = "nowrap";
+    row.appendChild(name);
+    const use = el("button", "btn btn-sm", store.doc?.design?.fontFamily === f.family ? "使用中" : "使用");
+    use.type = "button";
+    use.disabled = store.doc?.design?.fontFamily === f.family;
+    use.addEventListener("click", () => {
+      store.doc.design.fontFamily = f.family;
+      store.touch();
+      renderDesignPanel(document.getElementById("pane-design"));
+    });
+    row.appendChild(use);
+    const del = el("button", "list-row-act danger", "✕");
+    del.type = "button";
+    del.title = "删除字体";
+    del.addEventListener("click", async () => {
+      try {
+        const resp = await fetch(`/api/v1/fonts/${encodeURIComponent(f.file)}`, { method: "DELETE" });
+        if (!resp.ok) throw new Error((await resp.json()).error || `HTTP ${resp.status}`);
+        if (store.doc?.design?.fontFamily === f.family) {
+          store.doc.design.fontFamily = "sans";
+          store.touch();
+        }
+        renderDesignPanel(document.getElementById("pane-design"));
+        toastSuccess("字体已删除");
+      } catch (e) {
+        toastError("删除失败：" + e.message);
+      }
+    });
+    row.appendChild(del);
+    wrap.appendChild(row);
+  }
 }
 
 /** 把 store 中的当前值同步到控件（compact 时显示生效值并禁用滑块）。 */

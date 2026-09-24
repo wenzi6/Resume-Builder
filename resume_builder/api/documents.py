@@ -71,3 +71,20 @@ def duplicate_doc(doc_id: str):
     if not doc:
         return jsonify({"error": "文档不存在"}), 404
     return jsonify({"document": doc}), 201
+
+
+@bp.get("/<doc_id>/versions")
+def versions_doc(doc_id: str):
+    """文档历史快照列表。"""
+    if not store.get_document(doc_id):
+        return jsonify({"error": "文档不存在"}), 404
+    return jsonify({"versions": store.list_versions(doc_id)})
+
+
+@bp.post("/<doc_id>/versions/<int:version_id>/restore")
+def restore_version_doc(doc_id: str, version_id: int):
+    """恢复某份历史快照为当前文档。"""
+    doc = store.restore_version(doc_id, version_id)
+    if not doc:
+        return jsonify({"error": "版本不存在"}), 404
+    return jsonify({"document": doc})

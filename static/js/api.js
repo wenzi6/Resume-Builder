@@ -51,7 +51,7 @@ export async function del(url) {
   return resp.json();
 }
 
-/** POST 并触发浏览器下载（blob 响应）。 */
+/** POST 并触发浏览器下载（blob 响应），返回服务端质量警告（如有）。 */
 export async function postDownload(url, body, filename) {
   let resp;
   try {
@@ -73,6 +73,16 @@ export async function postDownload(url, body, filename) {
     }
     throw new Error(detail || `导出失败（HTTP ${resp.status}）`);
   }
+  // 服务端质量自检警告（如 PDF 字体 Type3 降级）
+  const warnings = [];
+  const warnHeader = resp.headers.get("X-Resume-Warnings");
+  if (warnHeader) {
+    try {
+      warnings.push(...JSON.parse(decodeURIComponent(warnHeader)));
+    } catch {
+      warnings.push(decodeURIComponent(warnHeader));
+    }
+  }
   const blob = await resp.blob();
   const url2 = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -82,6 +92,7 @@ export async function postDownload(url, body, filename) {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url2), 5000);
+  return warnings;
 }
 
 /** multipart 上传（导入 JSON / PDF / 模板）。 */
@@ -108,6 +119,10 @@ export async function postRender(doc) {
 /* ---------- 具体端点 ---------- */
 
 export const api = {
+  getJson,
+  postJson,
+  putJson,
+  del,
   schema: () => getJson("/api/v1/schema/sections"),
   templates: () => getJson("/api/v1/templates"),
   documents: () => getJson("/api/v1/documents"),
@@ -120,6 +135,7 @@ export const api = {
   duplicateDocument: (id) => postJson(`/api/v1/documents/${id}/duplicate`, {}),
   pageInfo: (doc) => postJson("/api/v1/page-info", { document: doc }),
   autoPagebreaks: (doc) => postJson("/api/v1/auto-pagebreaks", { document: doc }),
+  autoFit: (doc) => postJson("/api/v1/auto-fit", { document: doc }),
   exportPdf: (id) => postDownload("/api/v1/export/pdf", { id }, "resume.pdf"),
   exportDocx: (id) => postDownload("/api/v1/export/docx", { id }, "resume.docx"),
   exportJson: (id) => postDownload("/api/v1/export/json", { id }, "resume.json"),
