@@ -60,11 +60,22 @@ python app.py
 | **生成简历** | 填目标岗位 / 年限 / 技能 / 经历要点 → 生成结构化简历内容 → 应用到新文档或替换当前 |
 | **修改建议** | 通读当前简历，从量化成果、动词强度、关键词匹配、ATS 友好度等维度给出带示例的建议 |
 | **JD 定制** | 粘贴 JD → 按关键词改写已有条目（不编造经历）→ 逐条应用；列出 JD 要求但未体现的关键词 |
-| **设置** | Base URL / API Key / 模型 / 超时；内置 DeepSeek、Kimi、通义千千、OpenAI、Ollama 预设；一键测试连接 |
+| **设置** | 24 个服务商预设（国内 11 / 海外 9 / 本地 4，含智谱 GLM、豆包、混元、千帆、MiniMax、硅基流动、零一万物、阶跃、xAI、OpenRouter、Groq、Together、Mistral、LM Studio、vLLM、One API 中转…）+ 一键测试连接 |
 
 字段级 **✨ 润色**：多行文本与列表每一行都有润色按钮，按 Google XYZ 公式（做了什么 + 可量化结果 + 怎么做）改写，不编造数据。
 
-**Key 安全**：只保存于本机 `data/llm_config.json`（已 gitignore），除你选择的服务商外不发往任何地方；`GET /config` 永不返回 Key 本身。支持任何 OpenAI 兼容服务。
+**四种 API 协议格式**（设置页「API 格式」切换，选预设时自动带出）：
+
+| 格式 | 协议 | 覆盖 |
+|---|---|---|
+| OpenAI 兼容 | `POST /chat/completions`，Bearer 鉴权 | 绝大多数服务商（默认） |
+| Anthropic 原生 | `POST /v1/messages`，`x-api-key` 头 + 版本头，system 为顶层参数 | Claude 全系 |
+| Google Gemini 原生 | `POST :generateContent`，key 走 URL 参数，contents/parts 结构 | Gemini 全系 |
+| Azure OpenAI | URL 带 deployment + `api-version`，`api-key` 头 | Azure 部署 |
+
+新增一种第三方协议 = 在 `services/llm.py` 加一组 build/parse 函数并注册进 `_FORMATS`。
+
+**Key 安全**：只保存于本机 `data/llm_config.json`（已 gitignore），除你选择的服务商外不发往任何地方；`GET /config` 永不返回 Key 本身。
 
 ### 导入导出
 
@@ -181,7 +192,7 @@ Chromium 的 PDF 后端**无法正确嵌入 CFF 轮廓的 web font**，会降级
 $env:PYTHONPATH = 'E:\pythonProject\resume-builder'
 
 python app.py                        # 启动（http://localhost:5000）
-python -m pytest tests/ -q           # 全部测试（153 用例，PDF 用例会真实起 Chromium）
+python -m pytest tests/ -q           # 全部测试（163 用例，PDF 用例会真实起 Chromium）
 python tests/debug_pdf_fonts.py      # 诊断：PDF 内嵌字体原始信息 + 渲染页面图
 ```
 
@@ -199,7 +210,7 @@ python tests/debug_pdf_fonts.py      # 诊断：PDF 内嵌字体原始信息 + �
 | `test_features.py` | 字体上传 / 自动适应 / HTML 导出 / 版本历史 / 导出字体自检 / photo 安全 |
 | `test_source_pdf.py` | 对照导入：原始 PDF 落盘 / 往返 / 删除清理 / 复制独立 / 逐页渲染 / 安全路径 |
 | `test_original_export.py` | 原格式导出：无修改原样导出 / 修改应用且版式不变 / 删除 redact / 兜底与报错 |
-| `test_llm.py` | AI：配置安全（Key 不泄露）/ 四项能力 / 错误路径 / 空库启动 |
+| `test_llm.py` | AI：配置安全（Key 不泄露）/ 四项能力 / 四种协议格式适配 / 错误路径 / 空库启动 |
 
 ### 环境坑（都踩过）
 

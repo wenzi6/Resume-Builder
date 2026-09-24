@@ -20,23 +20,63 @@ from ..schema import normalize_document
 
 CONFIG_PATH = config.DATA_DIR / "llm_config.json"
 
-# 常见 OpenAI 兼容服务商预设（base_url + 推荐模型）
+# 服务商预设（format = API 协议格式，见下方格式适配器）
+#   openai    —— OpenAI 兼容 /chat/completions（绝大多数服务商）
+#   azure     —— Azure OpenAI（URL 带 deployment + api-version，api-key 头）
+#   anthropic —— Anthropic Claude 原生 /v1/messages（x-api-key 头，system 顶层参数）
+#   gemini    —— Google Gemini 原生 generateContent（key 走 URL 参数，contents/parts）
 PROVIDER_PRESETS = [
-    {"id": "deepseek", "name": "DeepSeek", "base_url": "https://api.deepseek.com", "model": "deepseek-chat"},
-    {"id": "kimi", "name": "Kimi (Moonshot)", "base_url": "https://api.moonshot.cn", "model": "moonshot-v1-8k"},
-    {"id": "qwen", "name": "通义千问 (DashScope)", "base_url": "https://dashscope.aliyuncs.com/compatible-mode", "model": "qwen-plus"},
-    {"id": "openai", "name": "OpenAI", "base_url": "https://api.openai.com", "model": "gpt-4o-mini"},
-    {"id": "ollama", "name": "Ollama (本地)", "base_url": "http://localhost:11434", "model": "qwen2.5:7b"},
+    # ---- 国内 ----
+    {"id": "deepseek", "name": "DeepSeek", "group": "国内", "base_url": "https://api.deepseek.com", "model": "deepseek-chat", "format": "openai"},
+    {"id": "zhipu", "name": "智谱 AI (GLM)", "group": "国内", "base_url": "https://open.bigmodel.cn/api/paas/v4", "model": "glm-4-plus", "format": "openai"},
+    {"id": "qwen", "name": "通义千问 (DashScope)", "group": "国内", "base_url": "https://dashscope.aliyuncs.com/compatible-mode", "model": "qwen-plus", "format": "openai"},
+    {"id": "kimi", "name": "Kimi (Moonshot)", "group": "国内", "base_url": "https://api.moonshot.cn", "model": "moonshot-v1-8k", "format": "openai"},
+    {"id": "doubao", "name": "火山方舟 (豆包)", "group": "国内", "base_url": "https://ark.cn-beijing.volces.com/api/v3", "model": "doubao-pro-32k", "format": "openai"},
+    {"id": "minimax", "name": "MiniMax", "group": "国内", "base_url": "https://api.minimax.chat/v1", "model": "MiniMax-Text-01", "format": "openai"},
+    {"id": "hunyuan", "name": "腾讯混元", "group": "国内", "base_url": "https://api.hunyuan.cloud.tencent.com/v1", "model": "hunyuan-turbo", "format": "openai"},
+    {"id": "qianfan", "name": "百度千帆", "group": "国内", "base_url": "https://qianfan.baidubce.com/v2", "model": "ernie-4.5-8k", "format": "openai"},
+    {"id": "yi", "name": "零一万物", "group": "国内", "base_url": "https://api.lingyiwanwu.com/v1", "model": "yi-lightning", "format": "openai"},
+    {"id": "stepfun", "name": "阶跃星辰", "group": "国内", "base_url": "https://api.stepfun.com/v1", "model": "step-2-16k", "format": "openai"},
+    {"id": "siliconflow", "name": "硅基流动 SiliconFlow", "group": "国内", "base_url": "https://api.siliconflow.cn/v1", "model": "Qwen/Qwen2.5-7B-Instruct", "format": "openai"},
+    # ---- 海外 ----
+    {"id": "openai", "name": "OpenAI", "group": "海外", "base_url": "https://api.openai.com", "model": "gpt-4o-mini", "format": "openai"},
+    {"id": "anthropic", "name": "Anthropic Claude", "group": "海外", "base_url": "https://api.anthropic.com", "model": "claude-sonnet-4-5", "format": "anthropic"},
+    {"id": "gemini", "name": "Google Gemini", "group": "海外", "base_url": "https://generativelanguage.googleapis.com", "model": "gemini-2.0-flash", "format": "gemini"},
+    {"id": "azure", "name": "Azure OpenAI", "group": "海外", "base_url": "https://YOUR-RESOURCE.openai.azure.com", "model": "gpt-4o-mini", "format": "azure"},
+    {"id": "xai", "name": "xAI (Grok)", "group": "海外", "base_url": "https://api.x.ai", "model": "grok-3-mini", "format": "openai"},
+    {"id": "openrouter", "name": "OpenRouter (模型聚合)", "group": "海外", "base_url": "https://openrouter.ai/api", "model": "openai/gpt-4o-mini", "format": "openai"},
+    {"id": "groq", "name": "Groq", "group": "海外", "base_url": "https://api.groq.com/openai", "model": "llama-3.3-70b-versatile", "format": "openai"},
+    {"id": "together", "name": "Together AI", "group": "海外", "base_url": "https://api.together.xyz", "model": "Qwen/Qwen2.5-7B-Instruct", "format": "openai"},
+    {"id": "mistral", "name": "Mistral", "group": "海外", "base_url": "https://api.mistral.ai", "model": "mistral-small-latest", "format": "openai"},
+    # ---- 本地 / 自建 ----
+    {"id": "ollama", "name": "Ollama (本地)", "group": "本地", "base_url": "http://localhost:11434", "model": "qwen2.5:7b", "format": "openai"},
+    {"id": "lmstudio", "name": "LM Studio (本地)", "group": "本地", "base_url": "http://localhost:1234", "model": "qwen2.5-7b-instruct", "format": "openai"},
+    {"id": "vllm", "name": "vLLM (自建)", "group": "本地", "base_url": "http://localhost:8000", "model": "Qwen/Qwen2.5-7B-Instruct", "format": "openai"},
+    {"id": "oneapi", "name": "One API / New API (中转)", "group": "本地", "base_url": "http://localhost:3000", "model": "deepseek-chat", "format": "openai"},
+]
+
+# 可手动选择的 API 格式（自定义服务商时用）
+API_FORMATS = [
+    {"id": "openai", "name": "OpenAI 兼容（/chat/completions）"},
+    {"id": "anthropic", "name": "Anthropic 原生（/v1/messages）"},
+    {"id": "gemini", "name": "Google Gemini 原生（generateContent）"},
+    {"id": "azure", "name": "Azure OpenAI"},
 ]
 
 DEFAULT_CONFIG: dict[str, Any] = {
     "base_url": "",
     "api_key": "",
     "model": "",
+    "format": "openai",
     "timeout": 90,
 }
 
 MAX_TIMEOUT = 300
+
+# Anthropic 协议版本头
+ANTHROPIC_VERSION = "2023-06-01"
+# Azure OpenAI api-version
+AZURE_API_VERSION = "2024-06-01"
 
 
 # ---------------------------------------------------------------- 配置
@@ -64,9 +104,13 @@ def save_config(cfg: dict[str, Any]) -> dict[str, Any]:
     path = _config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     current = load_config()
+    fmt = str(cfg.get("format") or "openai")
+    if fmt not in {f["id"] for f in API_FORMATS}:
+        fmt = "openai"
     out = {
         "base_url": str(cfg.get("base_url") or "").strip().rstrip("/"),
         "model": str(cfg.get("model") or "").strip()[:80],
+        "format": fmt,
         "timeout": max(10, min(int(cfg.get("timeout") or 90), MAX_TIMEOUT)),
     }
     # api_key：传入空串表示保留原值（前端「不修改 key」的语义）
@@ -83,9 +127,11 @@ def public_config() -> dict[str, Any]:
         "configured": bool(cfg["base_url"] and cfg["api_key"] and cfg["model"]),
         "base_url": cfg["base_url"],
         "model": cfg["model"],
+        "format": cfg["format"],
         "has_key": bool(cfg["api_key"]),
         "timeout": cfg["timeout"],
         "presets": PROVIDER_PRESETS,
+        "formats": API_FORMATS,
     }
 
 
@@ -128,31 +174,143 @@ def _friendly_error(e: Exception) -> str:
     return str(e)
 
 
+# ---------------------------------------------------------------- 协议格式适配器
+#
+# 每种 format 负责三件事：
+#   build_request(cfg, messages, temperature, max_tokens) -> (url, headers, payload)
+#   parse_response(data) -> str
+# 新增一种第三方协议 = 加两个函数 + 注册进 _FORMATS。
+
+
+def _split_system(messages: list[dict]) -> tuple[str, list[dict]]:
+    """把 system 消息拆出来（Anthropic/Gemini 的 system 是顶层参数）。"""
+    system_parts = [m.get("content", "") for m in messages if m.get("role") == "system"]
+    rest = [m for m in messages if m.get("role") != "system"]
+    return "\n\n".join(p for p in system_parts if p), rest
+
+
+def _merge_consecutive(messages: list[dict]) -> list[dict]:
+    """合并连续同角色消息（Anthropic 要求 user/assistant 交替）。"""
+    out: list[dict] = []
+    for m in messages:
+        if out and out[-1]["role"] == m["role"]:
+            out[-1]["content"] += "\n\n" + m["content"]
+        else:
+            out.append(dict(m))
+    return out
+
+
+def _build_openai(cfg, messages, temperature, max_tokens):
+    return (
+        f"{cfg['base_url']}/chat/completions",
+        {"Authorization": f"Bearer {cfg['api_key']}"},
+        {"model": cfg["model"], "messages": messages,
+         "temperature": temperature, "max_tokens": max_tokens, "stream": False},
+    )
+
+
+def _parse_openai(data):
+    return data["choices"][0]["message"]["content"]
+
+
+def _build_azure(cfg, messages, temperature, max_tokens):
+    # URL: {base}/openai/deployments/{model}/chat/completions?api-version=...
+    return (
+        f"{cfg['base_url']}/openai/deployments/{cfg['model']}/chat/completions"
+        f"?api-version={AZURE_API_VERSION}",
+        {"api-key": cfg["api_key"]},
+        {"messages": messages, "temperature": temperature,
+         "max_tokens": max_tokens, "stream": False},
+    )
+
+
+def _parse_azure(data):
+    return data["choices"][0]["message"]["content"]
+
+
+def _build_anthropic(cfg, messages, temperature, max_tokens):
+    system, rest = _split_system(messages)
+    rest = _merge_consecutive(rest)
+    # Anthropic 的 role 只有 user/assistant
+    conv = [{"role": ("assistant" if m["role"] == "assistant" else "user"),
+             "content": m.get("content", "")} for m in rest]
+    payload: dict[str, Any] = {
+        "model": cfg["model"],
+        "messages": conv,
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+    }
+    if system:
+        payload["system"] = system
+    return (
+        f"{cfg['base_url']}/v1/messages",
+        {"x-api-key": cfg["api_key"], "anthropic-version": ANTHROPIC_VERSION},
+        payload,
+    )
+
+
+def _parse_anthropic(data):
+    # content 是 block 数组，取所有 text block 拼接
+    blocks = data.get("content") or []
+    texts = [b.get("text", "") for b in blocks if isinstance(b, dict) and b.get("type") == "text"]
+    return "".join(texts)
+
+
+def _build_gemini(cfg, messages, temperature, max_tokens):
+    system, rest = _split_system(messages)
+    contents = []
+    for m in _merge_consecutive(rest):
+        contents.append({
+            "role": "model" if m["role"] == "assistant" else "user",
+            "parts": [{"text": m.get("content", "")}],
+        })
+    payload: dict[str, Any] = {
+        "contents": contents,
+        "generationConfig": {"temperature": temperature, "maxOutputTokens": max_tokens},
+    }
+    if system:
+        payload["systemInstruction"] = {"parts": [{"text": system}]}
+    # Gemini 的 key 走 URL 查询参数
+    sep = "&" if "?" in cfg["base_url"] else "?"
+    return (
+        f"{cfg['base_url']}/v1beta/models/{cfg['model']}:generateContent{sep}key={cfg['api_key']}",
+        {},
+        payload,
+    )
+
+
+def _parse_gemini(data):
+    parts = data["candidates"][0]["content"]["parts"]
+    return "".join(p.get("text", "") for p in parts)
+
+
+_FORMATS = {
+    "openai": (_build_openai, _parse_openai),
+    "azure": (_build_azure, _parse_azure),
+    "anthropic": (_build_anthropic, _parse_anthropic),
+    "gemini": (_build_gemini, _parse_gemini),
+}
+
+
 def chat(messages: list[dict], temperature: float = 0.7, max_tokens: int = 2000) -> str:
-    """调用 chat completions，返回文本内容。"""
+    """调用对话模型，返回文本内容（按配置的 format 走对应协议）。"""
     cfg = load_config()
     if not (cfg["base_url"] and cfg["api_key"] and cfg["model"]):
         raise ValueError("AI 尚未配置：请先在「AI 设置」中填写 Base URL / API Key / 模型")
-    payload = {
-        "model": cfg["model"],
-        "messages": messages,
-        "temperature": temperature,
-        "max_tokens": max_tokens,
-        "stream": False,
-    }
+    fmt = cfg.get("format") or "openai"
+    build, parse = _FORMATS.get(fmt, _FORMATS["openai"])
+    url, headers, payload = build(cfg, messages, temperature, max_tokens)
     try:
-        data = _http_post(
-            f"{cfg['base_url']}/chat/completions",
-            {"Authorization": f"Bearer {cfg['api_key']}"},
-            payload,
-            cfg["timeout"],
-        )
+        data = _http_post(url, headers, payload, cfg["timeout"])
     except Exception as e:  # noqa: BLE001
         raise RuntimeError(_friendly_error(e)) from e
     try:
-        return data["choices"][0]["message"]["content"].strip()
+        text = parse(data).strip()
     except (KeyError, IndexError, TypeError) as e:
-        raise RuntimeError(f"AI 返回格式异常：{str(data)[:200]}") from e
+        raise RuntimeError(f"AI 返回格式异常（{fmt}）：{str(data)[:200]}") from e
+    if not text:
+        raise RuntimeError(f"AI 返回了空内容（{fmt}）")
+    return text
 
 
 def test_connection() -> dict:

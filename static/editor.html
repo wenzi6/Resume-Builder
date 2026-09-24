@@ -312,16 +312,23 @@
 
         <!-- 设置 -->
         <section class="ai-pane" id="aiSettings" hidden>
-          <p class="ai-hint">data-i18n="ai.setHint">支持任何 OpenAI 兼容服务（DeepSeek / Kimi / 通义千问 / OpenAI / Ollama 等）。Key 只保存在本机 data/llm_config.json，不会上传到除服务商以外的任何地方。<</p>
-          <div class="field-group">
-            <label class="field-label" for="aiPreset">快速选择服务商</label>
-            <select class="field-input" id="aiPreset">
-              <option value="">自定义…</option>
-            </select>
+          <p class="ai-hint" data-i18n="ai.setHint">支持任何 OpenAI 兼容服务（DeepSeek / Kimi / 通义千问 / OpenAI / Ollama 等）。Key 只保存在本机 data/llm_config.json，不会上传到除服务商以外的任何地方。</p>
+          <div class="field-row">
+            <div class="field-group">
+              <label class="field-label" for="aiPreset">快速选择服务商</label>
+              <select class="field-input" id="aiPreset">
+                <option value="">自定义…</option>
+              </select>
+            </div>
+            <div class="field-group">
+              <label class="field-label" for="aiFormat">API 格式</label>
+              <select class="field-input" id="aiFormat"></select>
+            </div>
           </div>
           <div class="field-group">
             <label class="field-label" for="aiBaseUrl">Base URL</label>
             <input class="field-input" type="text" id="aiBaseUrl" placeholder="如 https://api.deepseek.com（不带 /chat/completions）">
+            <p class="field-hint" id="aiFormatHint" hidden></p>
           </div>
           <div class="field-group">
             <label class="field-label" for="aiApiKey">API Key</label>

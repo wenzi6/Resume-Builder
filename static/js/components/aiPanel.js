@@ -62,6 +62,13 @@ function unbusy(btn) {
 
 /* ---------------- 设置 ---------------- */
 
+const FORMAT_HINTS = {
+  openai: "",
+  azure: "Azure：Base URL 填到资源域名（如 https://xxx.openai.azure.com），「模型名称」填部署名（deployment）",
+  anthropic: "Anthropic 原生协议：Base URL 一般填 https://api.anthropic.com",
+  gemini: "Gemini 原生协议：Base URL 一般填 https://generativelanguage.googleapis.com",
+};
+
 async function loadAiConfig() {
   try {
     aiCfg = await api.getJson("/api/v1/llm/config");
@@ -69,32 +76,69 @@ async function loadAiConfig() {
     setStatus("aiConfigStatus", "配置加载失败：" + e.message, "error");
     return;
   }
+
+  // 预设下拉（按分组）
   const sel = document.getElementById("aiPreset");
-  if (sel.options.length <= 1) {
-    for (const p of aiCfg.presets || []) {
+  sel.textContent = "";
+  const custom = document.createElement("option");
+  custom.value = "";
+  custom.textContent = "自定义…";
+  sel.appendChild(custom);
+  const groups = {};
+  for (const p of aiCfg.presets || []) {
+    (groups[p.group] = groups[p.group] || []).push(p);
+  }
+  for (const [g, list] of Object.entries(groups)) {
+    const og = document.createElement("optgroup");
+    og.label = g;
+    for (const p of list) {
       const opt = document.createElement("option");
       opt.value = p.id;
       opt.textContent = `${p.name}（${p.model}）`;
       opt.dataset.baseUrl = p.base_url || p.baseUrl;
       opt.dataset.model = p.model;
-      sel.appendChild(opt);
+      opt.dataset.format = p.format || "openai";
+      og.appendChild(opt);
     }
+    sel.appendChild(og);
   }
+
+  // 格式下拉
+  const fmtSel = document.getElementById("aiFormat");
+  fmtSel.textContent = "";
+  for (const f of aiCfg.formats || []) {
+    const opt = document.createElement("option");
+    opt.value = f.id;
+    opt.textContent = f.name;
+    fmtSel.appendChild(opt);
+  }
+
   document.getElementById("aiBaseUrl").value = aiCfg.base_url || aiCfg.baseUrl || "";
   document.getElementById("aiModel").value = aiCfg.model || "";
   document.getElementById("aiTimeout").value = aiCfg.timeout || 90;
+  document.getElementById("aiFormat").value = aiCfg.format || "openai";
+  updateFormatHint();
   const keyInput = document.getElementById("aiApiKey");
   keyInput.value = "";
   keyInput.placeholder = aiCfg.has_key ? "已保存（留空则不修改）" : "sk-…";
+}
+
+function updateFormatHint() {
+  const fmt = document.getElementById("aiFormat").value;
+  const hint = document.getElementById("aiFormatHint");
+  const text = FORMAT_HINTS[fmt] || "";
+  hint.textContent = text;
+  hint.hidden = !text;
 }
 
 async function saveAiConfig() {
   const baseUrl = document.getElementById("aiBaseUrl").value.trim();
   const model = document.getElementById("aiModel").value.trim();
   const apiKey = document.getElementById("aiApiKey").value.trim();
+  const format = document.getElementById("aiFormat").value;
   const timeout = parseInt(document.getElementById("aiTimeout").value, 10) || 90;
   try {
-    aiCfg = await api.putJson("/api/v1/llm/config", { base_url: baseUrl, model, api_key: apiKey, timeout });
+    aiCfg = await api.putJson("/api/v1/llm/config", { base_url: baseUrl, model, api_key: apiKey, format, timeout });
     document.getElementById("aiApiKey").value = "";
     document.getElementById("aiApiKey").placeholder = "已保存（留空则不修改）";
     setStatus("aiConfigStatus", "✅ 已保存", "ok");
@@ -505,8 +549,11 @@ export function bindAiPanel() {
     if (opt?.dataset.baseUrl) {
       document.getElementById("aiBaseUrl").value = opt.dataset.baseUrl;
       document.getElementById("aiModel").value = opt.dataset.model || "";
+      document.getElementById("aiFormat").value = opt.dataset.format || "openai";
+      updateFormatHint();
     }
   });
+  document.getElementById("aiFormat").addEventListener("change", updateFormatHint);
 
   document.getElementById("btnAiGenerate").addEventListener("click", runGenerate);
   document.getElementById("btnAiSuggest").addEventListener("click", runSuggest);

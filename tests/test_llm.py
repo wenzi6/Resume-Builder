@@ -28,6 +28,18 @@ def _mock_chat(monkeypatch, reply: str):
     return calls
 
 
+def _mock_raw(monkeypatch, data: dict):
+    """mock _http_post 直接返回给定响应体（用于非 OpenAI 协议）。"""
+    calls = []
+
+    def fake_post(url, headers, payload, timeout):
+        calls.append({"url": url, "headers": headers, "payload": payload, "timeout": timeout})
+        return data
+
+    monkeypatch.setattr(llm, "_http_post", fake_post)
+    return calls
+
+
 def _configured(**overrides):
     cfg = {"base_url": "https://api.example.com", "api_key": "sk-test", "model": "test-model", "timeout": 30}
     cfg.update(overrides)
@@ -226,6 +238,118 @@ def test_tailor(monkeypatch):
 def test_tailor_requires_jd():
     with pytest.raises(ValueError, match="JD"):
         llm.tailor_to_jd(sample_general(), "  ")
+
+
+# ---------------- 协议格式适配 ----------------
+
+MSGS = [
+    {"role": "system", "content": "你是简历顾问"},
+    {"role": "user", "content": "问题一"},
+    {"role": "user", "content": "问题二"},
+    {"role": "assistant", "content": "回答"},
+]
+
+
+def test_presets_valid():
+    """预设表完整且格式合法。"""
+    ids = [p["id"] for p in llm.PROVIDER_PRESETS]
+    assert len(ids) == len(set(ids)), "预设 id 重复"
+    valid_formats = {f["id"] for f in llm.API_FORMATS}
+    for p in llm.PROVIDER_PRESETS:
+        assert p["format"] in valid_formats, p["id"]
+        assert p["base_url"].startswith("http"), p["id"]
+        assert p["model"], p["id"]
+        assert p.get("group"), p["id"]
+    # 四种格式都要有预设覆盖
+    covered = {p["format"] for p in llm.PROVIDER_PRESETS}
+    assert covered == valid_formats
+
+
+def test_build_openai():
+    cfg = {"base_url": "https://api.example.com", "api_key": "sk", "model": "m"}
+    url, headers, payload = llm._build_openai(cfg, MSGS, 0.5, 100)
+    assert url == "https://api.example.com/chat/completions"
+    assert headers["Authorization"] == "Bearer sk"
+    assert payload["model"] == "m" and payload["stream"] is False
+
+
+def test_build_azure():
+    cfg = {"base_url": "https://x.openai.azure.com", "api_key": "AK", "model": "gpt-4o-mini"}
+    url, headers, payload = llm._build_azure(cfg, MSGS, 0.5, 100)
+    assert "/openai/deployments/gpt-4o-mini/chat/completions" in url
+    assert "api-version=" in url
+    assert headers == {"api-key": "AK"}          # 不是 Bearer
+    assert "model" not in payload                    # 模型在 URL 里
+
+
+def test_build_anthropic():
+    cfg = {"base_url": "https://api.anthropic.com", "api_key": "K", "model": "claude-x"}
+    url, headers, payload = llm._build_anthropic(cfg, MSGS, 0.5, 100)
+    assert url == "https://api.anthropic.com/v1/messages"
+    assert headers["x-api-key"] == "K"
+    assert headers["anthropic-version"] == "2023-06-01"
+    assert payload["system"] == "你是简历顾问"       # system 提为顶层
+    assert [m["role"] for m in payload["messages"]] == ["user", "assistant"]
+    assert payload["messages"][0]["content"] == "问题一\n\n问题二"  # 连续 user 合并
+    assert payload["max_tokens"] == 100
+
+
+def test_build_gemini():
+    cfg = {"base_url": "https://generativelanguage.googleapis.com", "api_key": "GK", "model": "gemini-2.0-flash"}
+    url, headers, payload = llm._build_gemini(cfg, MSGS, 0.5, 100)
+    assert ":generateContent" in url and "key=GK" in url   # key 走 URL 参数
+    assert headers == {}
+    assert payload["systemInstruction"]["parts"][0]["text"] == "你是简历顾问"
+    roles = [c["role"] for c in payload["contents"]]
+    assert roles == ["user", "model"]                    # assistant → model
+    assert payload["generationConfig"]["maxOutputTokens"] == 100
+
+
+def test_parse_formats():
+    assert llm._parse_anthropic({"content": [{"type": "text", "text": "hi"}, {"type": "text", "text": " there"}]}) == "hi there"
+    assert llm._parse_gemini({"candidates": [{"content": {"parts": [{"text": "he"}, {"text": "llo"}]}}]}) == "hello"
+    assert llm._parse_azure({"choices": [{"message": {"content": "ok"}}]}) == "ok"
+
+
+def test_chat_dispatches_by_format(monkeypatch):
+    """chat() 按配置的 format 走对应协议。"""
+    cases = (
+        ("anthropic", {"content": [{"type": "text", "text": "claude 回复"}]}, "claude 回复"),
+        ("gemini", {"candidates": [{"content": {"parts": [{"text": "gemini 回复"}]}}]}, "gemini 回复"),
+        ("azure", {"choices": [{"message": {"content": "azure 回复"}}]}, "azure 回复"),
+        ("openai", {"choices": [{"message": {"content": "openai 回复"}}]}, "openai 回复"),
+    )
+    for fmt, reply, marker in cases:
+        _configured(format=fmt)
+        calls = _mock_raw(monkeypatch, reply)
+        out = llm.chat([{"role": "user", "content": "hi"}])
+        assert out == marker, fmt
+        assert calls[0]["url"]
+
+
+def test_chat_empty_content_raises(monkeypatch):
+    _configured()
+    _mock_raw(monkeypatch, {"choices": [{"message": {"content": ""}}]})
+    with pytest.raises(RuntimeError, match="空内容"):
+        llm.chat([{"role": "user", "content": "hi"}])
+
+
+def test_config_format_roundtrip():
+    cfg = _configured(format="anthropic")
+    assert cfg["format"] == "anthropic"
+    assert llm.load_config()["format"] == "anthropic"
+    assert llm.public_config()["format"] == "anthropic"
+    # 非法格式回落 openai
+    llm.save_config({"base_url": "https://api.example.com", "model": "m", "format": "bogus"})
+    assert llm.load_config()["format"] == "openai"
+
+
+def test_api_config_accepts_format(client):
+    r = client.put("/api/v1/llm/config", json={
+        "base_url": "https://api.anthropic.com", "model": "claude-x",
+        "api_key": "k", "format": "anthropic"})
+    assert r.status_code == 200
+    assert r.get_json()["format"] == "anthropic"
 
 
 # ---------------- 启动与清理 ----------------

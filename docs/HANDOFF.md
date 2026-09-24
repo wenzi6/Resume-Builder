@@ -16,7 +16,7 @@
 |---|---|
 | PDF 中文字体 Type3 降级（原 P0 阻塞） | ✅ **已解决**：CFF OTF → glyf TTF + 剥离部首 cmap，全模板 Type0、中文可检索 |
 | 前端编辑器（`static/`） | ✅ **已从零完成**：12 个文件，全部交互经真实浏览器验证 |
-| 正式测试套件 | ✅ **pytest 153 用例全绿**（字体 / 分页 / ATS / 迁移 / PDF 导入 / 视觉回归 / 新功能 / 对照导入 / 原格式导出 / AI 回归） |
+| 正式测试套件 | ✅ **pytest 163 用例全绿**（字体 / 分页 / ATS / 迁移 / PDF 导入 / 视觉回归 / 新功能 / 对照导入 / 原格式导出 / AI / 协议格式回归） |
 | 视觉走查 | ✅ 6 套模板 → PDF → PNG 逐套检查通过，且有基线像素回归测试 |
 | 优化轮（导出自检 / 自动适应 / 自有字体 / 版本历史 / HTML 导出 / undo / i18n / CI） | ✅ **已完成并经浏览器 10/10 走查**，详见 §3.0 |
 | README / git init / 清理 | ✅ 已完成（`.gitignore` 规范，含 CI 工作流） |
@@ -69,7 +69,7 @@
 | 临时文件清理 | `engine/pdf.py sweep_stale_renders()`（启动时清扫 >1h 残留） | — |
 | photo 安全 | `sections.py _safe_photo_src()`（仅 http(s) / 站内路径） | — |
 | CI | `.github/workflows/ci.yml`（Windows + Playwright） | — |
-| ✨ AI 助手 | `services/llm.py`（OpenAI 兼容客户端，urllib 零依赖 + 可 mock 传输层）+ `api/llm.py` | 顶栏「✨ AI」面板四页签（生成/建议/JD 定制/设置）+ 字段级润色按钮 |
+| ✨ AI 助手 | `services/llm.py`（urllib 零依赖，**四种协议格式适配器**：openai/azure/anthropic/gemini，`_http_post` 可 mock）+ `api/llm.py` | 顶栏「✨ AI」面板四页签 + 24 个服务商预设分组 + 格式选择器 + 字段级润色按钮 |
 
 **修过的坑（代码已验证，勿重复排查）**：
 
@@ -111,7 +111,7 @@ Chromium PDF 后端对 CFF 轮廓 web font 降级为 Type3。解决链：
 ### 4.2 Phase 2 剩余功能（按建议顺序）
 
 > 优化轮已完成：自有字体上传、自动适应一页、历史版本、HTML 导出、导出自检、undo、i18n、CI。
-> **AI 轮已完成**：用户自带 Key 的 OpenAI 兼容 AI（生成 / 建议 / JD 定制 / 字段润色），见 §3.0。
+> **AI 轮已完成**：用户自带 Key 的 AI（生成 / 建议 / JD 定制 / 字段润色）；支持 24 个服务商预设与四种 API 协议格式（OpenAI 兼容 / Anthropic 原生 / Gemini 原生 / Azure），新增协议只需在 `_FORMATS` 注册一组 build/parse。
 > **已决策保留**：`/api/*` 旧版兼容层继续保留（用户可能还开着 v1 页面，删除是产品决策不是技术决策）。
 
 1. **纯本地 JD 关键词匹配 / ATS 检查**（`services/analyze.py` + `api/analyze.py`）
