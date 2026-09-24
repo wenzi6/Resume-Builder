@@ -26,6 +26,7 @@ class Store {
       paginationMode: false,
       pageInfo: null,       // page-info 结果
       zoom: 1,
+      viewMode: "template", // template（模板预览） | source（原始 PDF 格式）
     };
     this._listeners = new Map(); // event -> Set<fn>
     this._previewTimer = null;
@@ -67,8 +68,10 @@ class Store {
     this._lastStable = doc ? deepClone(doc) : null;
     this._history = [];
     this._redoStack = [];
+    this.state.viewMode = doc?.sourcePdf ? "source" : "template";
     this.emit("init");
     this.emit("doc", this.state.doc);
+    this.emit("view-mode", this.state.viewMode);
   }
 
   // ---------- 文档访问 ----------
@@ -257,9 +260,12 @@ class Store {
     this.state.pageInfo = null;
     this._dirty = false;
     this._lastStable = deepClone(doc);
+    // 带原始 PDF 的文档（对照导入）默认展示原格式；否则回到模板预览
+    this.state.viewMode = doc?.sourcePdf ? "source" : "template";
     this._writeLocal(doc);
     this.emit("doc", doc);
     this.emit("doc-swapped", doc);
+    this.emit("view-mode", this.state.viewMode);
     this.refreshPreview();
   }
 
@@ -288,6 +294,12 @@ class Store {
   setZoom(z) {
     this.state.zoom = Math.max(0.5, Math.min(1.5, Math.round(z * 100) / 100));
     this.emit("zoom", this.state.zoom);
+  }
+
+  // ---------- 视图模式（模板预览 / 原始格式） ----------
+  setViewMode(mode) {
+    this.state.viewMode = mode === "source" ? "source" : "template";
+    this.emit("view-mode", this.state.viewMode);
   }
 
   // ---------- 内容操作辅助（组件通过 store.doc 直接 mutate 后调 touch） ----------

@@ -316,6 +316,11 @@ function docItem(d) {
 
   const head = el("div", "doc-item-head");
   head.appendChild(el("span", "doc-item-title", d.title || "未命名简历"));
+  if (d.hasSourcePdf) {
+    const pdf = el("span", "badge badge-pdf", "原PDF");
+    pdf.title = "对照导入：保留原始 PDF 格式";
+    head.appendChild(pdf);
+  }
   const acts = el("span", "doc-item-acts");
 
   const hist = el("button", "sec-act", "⏱");

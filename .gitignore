@@ -8,6 +8,9 @@ __pycache__/
 data/*.db
 data/*.db-journal
 
+# 对照导入的原始 PDF（原格式保留，随文档生命周期管理）
+data/imports/
+
 # 导出 / 渲染临时产物
 output/
 

@@ -46,6 +46,7 @@ async function boot() {
   bindDialogs();
   bindShortcuts();
   bindStoreEvents();
+  bindViewToggle();
   bindLangToggle();
 
   try {
@@ -407,6 +408,85 @@ function bindLangToggle() {
     renderDocList(document.getElementById("docList"));
     renderPageInfo();
   });
+}
+
+/* ================= 视图切换（模板预览 / 原始格式） ================= */
+
+function bindViewToggle() {
+  document.getElementById("viewToggle").addEventListener("click", (e) => {
+    const btn = e.target.closest("button[data-view]");
+    if (!btn) return;
+    store.setViewMode(btn.dataset.view);
+  });
+  store.on("view-mode", applyViewMode);
+  store.on("doc-swapped", applyViewMode);
+}
+
+function applyViewMode() {
+  const doc = store.doc;
+  const hasSource = !!doc?.sourcePdf;
+  document.getElementById("viewToggle").hidden = !hasSource;
+  const mode = store.state.viewMode;
+  document.querySelectorAll("#viewToggle button").forEach((b) =>
+    b.classList.toggle("active", b.dataset.view === mode));
+
+  const sourcePane = document.getElementById("sourcePane");
+  const previewScroll = document.getElementById("previewScroll");
+  const zoomGroup = document.querySelector(".zoom-group");
+  if (mode === "source" && hasSource) {
+    sourcePane.hidden = false;
+    previewScroll.hidden = true;
+    document.getElementById("paginationBar").hidden = true; // 分页只属于模板预览
+    zoomGroup.style.display = "none";
+    loadSourcePdf(doc.sourcePdf);
+  } else {
+    sourcePane.hidden = true;
+    previewScroll.hidden = false;
+    zoomGroup.style.display = "";
+    if (store.state.paginationMode) document.getElementById("paginationBar").hidden = false;
+  }
+}
+
+async function loadSourcePdf(rel) {
+  const pagesEl = document.getElementById("sourcePages");
+  const loading = document.getElementById("sourceLoading");
+  const missing = document.getElementById("sourceMissing");
+  const openBtn = document.getElementById("sourceOpen");
+  const url = "/data/" + rel;
+  openBtn.href = url;
+
+  // 已渲染过同一份就不再重复请求
+  if (pagesEl.dataset.rel === rel) return;
+  pagesEl.dataset.rel = rel;
+  pagesEl.textContent = "";
+  loading.hidden = false;
+  missing.hidden = true;
+
+  try {
+    const resp = await fetch(url, { method: "HEAD" });
+    if (!resp.ok) throw new Error("HTTP " + resp.status);
+    const data = await api.getJson(`/api/v1/documents/${store.doc.id}/source-pages`);
+    loading.hidden = true;
+    if (!data.pages?.length) throw new Error("无页面");
+    data.pages.forEach((p) => {
+      const fig = document.createElement("figure");
+      fig.style.margin = "0";
+      const img = document.createElement("img");
+      img.src = p.url;
+      img.alt = `第 ${p.page} 页`;
+      img.loading = "lazy";
+      fig.appendChild(img);
+      const no = document.createElement("figcaption");
+      no.className = "source-page-no";
+      no.textContent = `第 ${p.page} 页 / 共 ${data.pages.length} 页`;
+      fig.appendChild(no);
+      pagesEl.appendChild(fig);
+    });
+  } catch {
+    loading.hidden = true;
+    pagesEl.textContent = "";
+    missing.hidden = false;
+  }
 }
 
 /* ================= 删除当前文档后 ================= */

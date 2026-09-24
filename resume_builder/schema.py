@@ -177,6 +177,8 @@ def normalize_document(doc: Any) -> dict[str, Any]:
     """把外部输入归一化为完整合法的 Document。"""
     if not isinstance(doc, dict):
         doc = {}
+    # 先在原始输入上取附件路径（v1 迁移会重建字典，之后再取就丢了）
+    raw_source_pdf = doc.get("sourcePdf")
     if doc.get("version") != DOCUMENT_VERSION and (doc.get("_sections") or "content" not in doc):
         doc = migrate_legacy(doc)
 
@@ -210,7 +212,20 @@ def normalize_document(doc: Any) -> dict[str, Any]:
     out["design"] = normalize_design(doc.get("design"))
     out["updatedAt"] = float(doc.get("updatedAt") or time.time())
     out["createdAt"] = float(doc.get("createdAt") or out["updatedAt"])
+
+    # 原始 PDF 参照（对照导入）：相对 data/ 的安全路径，随文档持久化
+    if isinstance(raw_source_pdf, str) and _safe_rel_pdf_path(raw_source_pdf):
+        out["sourcePdf"] = raw_source_pdf
     return out
+
+
+def _safe_rel_pdf_path(p: str) -> bool:
+    """原始 PDF 路径必须是 data/ 下的安全相对路径（防路径穿越）。"""
+    if not p or len(p) > 120 or not p.endswith(".pdf"):
+        return False
+    if p.startswith(("/", "\\")) or ":" in p or ".." in p.split("/"):
+        return False
+    return all(part and part not in (".", "..") for part in p.split("/"))
 
 
 def _normalize_content(content: dict[str, Any], sections: list[dict[str, Any]]) -> dict[str, Any]:

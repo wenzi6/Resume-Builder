@@ -16,7 +16,7 @@
 |---|---|
 | PDF 中文字体 Type3 降级（原 P0 阻塞） | ✅ **已解决**：CFF OTF → glyf TTF + 剥离部首 cmap，全模板 Type0、中文可检索 |
 | 前端编辑器（`static/`） | ✅ **已从零完成**：12 个文件，全部交互经真实浏览器验证 |
-| 正式测试套件 | ✅ **pytest 108 用例全绿**（字体 / 分页 / ATS / 迁移 / PDF 导入 / 视觉回归 / 新功能回归） |
+| 正式测试套件 | ✅ **pytest 117 用例全绿**（字体 / 分页 / ATS / 迁移 / PDF 导入 / 视觉回归 / 新功能 / 对照导入回归） |
 | 视觉走查 | ✅ 6 套模板 → PDF → PNG 逐套检查通过，且有基线像素回归测试 |
 | 优化轮（导出自检 / 自动适应 / 自有字体 / 版本历史 / HTML 导出 / undo / i18n / CI） | ✅ **已完成并经浏览器 10/10 走查**，详见 §3.0 |
 | README / git init / 清理 | ✅ 已完成（`.gitignore` 规范，含 CI 工作流） |
@@ -64,6 +64,7 @@
 | 撤销 / 重做 | —（纯前端） | `store.js` 编辑突发快照 + Ctrl+Z / Ctrl+Y |
 | 分页线精确化 | `pdf_worker.py` 返回 `effTop` / `breaks` | `pagination.js` 打印坐标反算 |
 | i18n（中 / 英） | — | `static/js/i18n.js` + 顶栏「EN / 中」 |
+| PDF 对照导入 | `api/imports.py` 落盘原始 PDF + `services/source_pdf.py` 逐页渲染 + 删除/复制/孤立清扫 | 右栏「原始格式」视图（页面图片，全环境一致）+ 视图切换 + 原生查看器入口 |
 | 临时文件清理 | `engine/pdf.py sweep_stale_renders()`（启动时清扫 >1h 残留） | — |
 | photo 安全 | `sections.py _safe_photo_src()`（仅 http(s) / 站内路径） | — |
 | CI | `.github/workflows/ci.yml`（Windows + Playwright） | — |
@@ -84,6 +85,8 @@
 | 10 | 分页模式不画线 | 进入时 `pageInfo` 非空（过期的 1 页数据）就不重新测量 | 进入分页模式**总是**重新测量；结果更新时重画覆盖层 |
 | 11 | 压缩阶梯 0.86/0.84/0.82/0.80 四档空转 | schema 把 fontScale 硬钳到 ≥0.90 | `DESIGN_LIMITS.fontScale` 下限放宽到 0.80（8.4pt 仍是可读下限） |
 | 12 | `api.getJson is not a function` | `api` 对象没挂基础方法，designPanel / sidebar 直接调 | api 对象补 `getJson/postJson/putJson/del` |
+| 13 | 对照导入删除文档后 PDF 残留 | Windows 下 `/data/` 路由句柄短暂锁文件，unlink 静默失败 | 删除重试 3 次 + 启动时孤立文件/页面缓存清扫 |
+| 14 | 无头 Chromium 的 PDF 插件不渲染 | 对照视图原用 iframe 直显 PDF，无头环境不可靠 | 改为服务端 pymupdf 渲染逐页 PNG（dpi 需传 int）+ 「原生查看器打开」入口 |
 
 ---
 

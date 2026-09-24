@@ -81,6 +81,24 @@ def versions_doc(doc_id: str):
     return jsonify({"versions": store.list_versions(doc_id)})
 
 
+@bp.get("/<doc_id>/source-pages")
+def source_pages_doc(doc_id: str):
+    """渲染文档关联的原始 PDF 为逐页图片（对照导入的「原格式」视图）。"""
+    from ..services import source_pdf
+
+    doc = store.get_document(doc_id)
+    if not doc:
+        return jsonify({"error": "文档不存在"}), 404
+    rel = doc.get("sourcePdf")
+    if not rel:
+        return jsonify({"pages": []})
+    try:
+        pages = source_pdf.render_pages(rel)
+    except Exception as e:  # noqa: BLE001
+        return jsonify({"error": f"原始 PDF 渲染失败：{e}"}), 500
+    return jsonify({"pages": pages, "pdfUrl": f"/data/{rel}"})
+
+
 @bp.post("/<doc_id>/versions/<int:version_id>/restore")
 def restore_version_doc(doc_id: str, version_id: int):
     """恢复某份历史快照为当前文档。"""

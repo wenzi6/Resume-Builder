@@ -228,6 +228,7 @@ button { font-family: inherit; }
   flex: none;
 }
 .badge-ats { background: #dcfce7; color: #166534; }
+.badge-pdf { background: #dbeafe; color: #1e40af; }
 .badge-noats { background: var(--panel-2); color: var(--muted); border: 1px solid var(--border); }
 .badge-check { color: var(--accent); font-weight: 700; }
 
@@ -851,6 +852,79 @@ input[type="range"]::-moz-range-thumb {
   .preview { border-left: none; }
   .preview-scroll { overflow-x: auto; }
   .doc-title { width: 100%; }
+}
+
+/* ============ 原始格式对照窗格 ============ */
+.view-toggle { flex: none; }
+.seg-sm button { padding: 4px 10px; font-size: 12px; }
+
+.source-pane {
+  flex: 1;
+  display: none;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--panel-2);
+}
+.source-pane:not([hidden]) { display: flex; }
+.source-bar {
+  flex: none;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 7px 12px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+.source-title { font-size: 12px; font-weight: 700; color: var(--text); }
+.source-hint { font-size: 11px; color: var(--faint); }
+.source-frame {
+  flex: 1;
+  width: 100%;
+  border: none;
+  background: #525659;
+  min-height: 0;
+}
+.source-scroll {
+  flex: 1;
+  overflow: auto;
+  min-height: 0;
+  padding: 14px 0 30px;
+}
+.source-pages {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+.source-pages img {
+  width: min(100%, 794px);
+  height: auto;
+  background: #fff;
+  border: none;
+  box-shadow: var(--shadow-lg);
+  border-radius: 2px;
+}
+.source-page-no {
+  font-size: 10px;
+  color: var(--faint);
+  text-align: center;
+  margin-top: 4px;
+}
+.source-loading {
+  text-align: center;
+  color: var(--muted);
+  font-size: 12px;
+  padding: 40px 0;
+}
+.source-open { margin-left: auto; text-decoration: none; }
+.source-missing {
+  margin: 40px auto;
+  max-width: 320px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.7;
 }
 
 /* 滚动条 */

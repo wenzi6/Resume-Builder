@@ -118,6 +118,14 @@ def _parse_structure(result: dict) -> dict:
     return {"total_lines": len(sections), "sections": sections}
 
 
+def count_pages(path) -> int:
+    """探测 PDF 页数（pymupdf，轻量）。"""
+    import pymupdf
+
+    with pymupdf.open(str(path)) as pdf:
+        return pdf.page_count
+
+
 # ---------------------------------------------------------------- 结构化解析
 
 JOB_RE = re.compile(r"(工程师|开发|设计|运营|专员|经理|助理|分析师|架构师|顾问|运维|总监|主管|讲师|编辑|会计|出纳|销售|客服|行政|人事|财务|法务|测试|算法|数据)")

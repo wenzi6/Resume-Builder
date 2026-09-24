@@ -86,7 +86,7 @@
       <div class="editor-loading">正在加载编辑器…</div>
     </main>
 
-    <!-- 右栏：预览 -->
+    <!-- 右栏：预览 / 原始格式 -->
     <section class="preview" aria-label="简历预览">
       <header class="preview-bar">
         <div class="page-info" id="pageInfo">
@@ -94,6 +94,10 @@
           <span class="page-warn" id="pageWarn"></span>
         </div>
         <div class="preview-actions">
+          <div class="seg seg-sm view-toggle" id="viewToggle" role="group" aria-label="预览模式" hidden>
+            <button type="button" class="active" data-view="template">模板预览</button>
+            <button type="button" data-view="source">原始格式</button>
+          </div>
           <div class="zoom-group" role="group" aria-label="缩放">
             <button class="icon-btn" type="button" id="zoomOut" title="缩小">−</button>
             <span class="zoom-val" id="zoomVal">100%</span>
@@ -119,6 +123,22 @@
           <iframe class="preview-frame" id="previewFrame" title="简历预览"></iframe>
         </div>
         <div class="preview-empty" id="previewEmpty" hidden>预览不可用</div>
+      </div>
+
+      <!-- 原始 PDF（对照导入：原格式原样保留，模块化编辑在旁边进行） -->
+      <div class="source-pane" id="sourcePane" hidden>
+        <div class="source-bar">
+          <span class="source-title">原始格式（导入时原样保留）</span>
+          <span class="source-hint">在左侧模块中编辑内容；导出 PDF / Word 时按当前模板重新排版</span>
+          <a class="btn btn-sm btn-ghost source-open" id="sourceOpen" href="#" target="_blank" rel="noopener">原生查看器打开</a>
+        </div>
+        <div class="source-scroll" id="sourceScroll">
+          <div class="source-pages" id="sourcePages"></div>
+          <div class="source-loading" id="sourceLoading">正在渲染原始格式…</div>
+          <div class="source-missing" id="sourceMissing" hidden>
+            原始 PDF 文件不存在（可能已被清理，或该文档从其他机器导入）
+          </div>
+        </div>
       </div>
     </section>
   </div>

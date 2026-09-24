@@ -57,7 +57,8 @@ python app.py
 
 - **导出**：PDF（Playwright + `@page` A4）、Word（python-docx，字号 / 行距 / 边距与 HTML 一致）、JSON（含信封格式）、**自包含 HTML**（字体 base64 内嵌，离线可开）
 - **导出质量自检**：每次导出 PDF 后校验内嵌字体——发现 Type3 降级（用户导入的模板引用了不可嵌入的字体）会通过响应头返回警告，编辑器即时提示
-- **导入**：JSON（兼容 v1 旧格式，自动迁移，换发新 id 不覆盖已有简历）、PDF（pdfplumber 解析为结构化文档）、模板（.html / .zip，含路径穿越防护）
+- **导入**：JSON（兼容 v1 旧格式，自动迁移，换发新 id 不覆盖已有简历）、模板（.html / .zip，含路径穿越防护）
+- **PDF 对照导入**：解析为模块化内容的同时，**原始 PDF 原格式保留**在右栏「原始格式」视图（服务端渲染为逐页图片，全环境一致）；左侧模块编辑不影响原格式，导出时按当前模板重新排版；可随时切回「模板预览」，或用「原生查看器打开」看原文
 - **自有字体**：上传 .ttf / .otf → 自动检测 CFF 并转换为 glyf + 剥离部首 cmap → 注册进设计面板，PDF 导出时正常嵌入为 Type0
 - **持久化**：SQLite（WAL 模式）多简历管理 + 每份文档最近 20 份历史快照（`data/resumes.db`，运行时自动生成）
 
@@ -137,7 +138,8 @@ SectionConfig = {"key","title","type":"object|array|simple|skills","fields":[Fie
 | `/api/v1/documents/<id>/versions/<vid>/restore` | POST | 恢复历史版本 |
 | `/api/v1/export/{pdf,docx,json,html}` | POST | 导出（支持 `{id}` 或 `{document}`） |
 | `/api/v1/import/json` | POST | JSON 导入（含 v1 迁移，换发新 id） |
-| `/api/v1/import/pdf` | POST | PDF 解析成结构化文档 |
+| `/api/v1/import/pdf` | POST | PDF 对照导入（解析 + 原始文件保留） |
+| `/api/v1/documents/<id>/source-pages` | GET | 原始 PDF 逐页渲染（对照视图数据源） |
 | `/api/v1/import-template` | POST | 模板导入（.html/.zip，有穿越防护） |
 
 旧版 `/api/*` 兼容层：`/api/templates`、`/api/sample-data`、`/api/preview/<t>`、`/api/render/<t>`、`/api/export-pdf/<t>`、`/api/export-word/<t>` 已桥接。其他路由：`GET /`（编辑器）、`GET /static/<file>`、`GET /fonts/<file>`、`GET /data/<file>`、`GET /healthz`。
@@ -162,7 +164,7 @@ Chromium 的 PDF 后端**无法正确嵌入 CFF 轮廓的 web font**，会降级
 $env:PYTHONPATH = 'E:\pythonProject\resume-builder'
 
 python app.py                        # 启动（http://localhost:5000）
-python -m pytest tests/ -q           # 全部测试（108 用例，PDF 用例会真实起 Chromium）
+python -m pytest tests/ -q           # 全部测试（117 用例，PDF 用例会真实起 Chromium）
 python tests/debug_pdf_fonts.py      # 诊断：PDF 内嵌字体原始信息 + 渲染页面图
 ```
 
@@ -178,6 +180,7 @@ python tests/debug_pdf_fonts.py      # 诊断：PDF 内嵌字体原始信息 + �
 | `test_import_pdf.py` | PDF 导入：自家管线生成样本 → 解析回结构化数据 → 坏文件优雅失败 |
 | `test_visual_regression.py` | 视觉回归：6 模板位图与基线像素对比（`REGEN_BASELINES=1` 更新基线） |
 | `test_features.py` | 字体上传 / 自动适应 / HTML 导出 / 版本历史 / 导出字体自检 / photo 安全 |
+| `test_source_pdf.py` | 对照导入：原始 PDF 落盘 / 往返 / 删除清理 / 复制独立 / 逐页渲染 / 安全路径 |
 
 ### 环境坑（都踩过）
 

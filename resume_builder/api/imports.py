@@ -1,8 +1,11 @@
 """导入 API：JSON 简历 / PDF 简历。"""
 from __future__ import annotations
 
+import uuid
+
 from flask import Blueprint, jsonify, request
 
+from ..config import DATA_DIR
 from ..exporters import import_document
 from ..services import pdf_import
 
@@ -41,13 +44,36 @@ def import_pdf():
     if not file.filename.lower().endswith(".pdf"):
         return jsonify({"error": "仅支持 .pdf 格式"}), 400
     try:
-        extracted = pdf_import.extract_pdf(file)
+        # 先落盘原始 PDF（对照导入：原格式原样保留，供编辑器并排展示）
+        imports_dir = DATA_DIR / "imports"
+        imports_dir.mkdir(parents=True, exist_ok=True)
+        stored_name = f"{uuid.uuid4().hex}.pdf"
+        stored_path = imports_dir / stored_name
+        file.save(str(stored_path))
+
+        try:
+            pages = pdf_import.count_pages(stored_path)
+        except Exception:  # noqa: BLE001 页数探测失败不阻塞导入
+            pages = 0
+
+        with stored_path.open("rb") as fh:
+            extracted = pdf_import.extract_pdf(fh)
         content = pdf_import.build_document_from_pdf(extracted)
     except Exception as e:  # noqa: BLE001
+        stored_path.unlink(missing_ok=True)
         return jsonify({"error": f"PDF 解析失败：{e}"}), 500
 
     from ..schema import new_document
 
     doc = new_document(title=f"导入-{file.filename[:20]}")
     doc["content"] = content
-    return jsonify({"document": doc, "rawText": extracted.get("raw_text", "")[:2000]})
+    doc["sourcePdf"] = f"imports/{stored_name}"
+    return jsonify({
+        "document": doc,
+        "rawText": extracted.get("raw_text", "")[:2000],
+        "pdf": {
+            "url": f"/data/imports/{stored_name}",
+            "pages": pages,
+            "name": file.filename,
+        },
+    })

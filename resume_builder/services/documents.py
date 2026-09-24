@@ -5,13 +5,14 @@
 from __future__ import annotations
 
 import json
+import shutil
 import sqlite3
 import time
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
 
-from ..config import DB_PATH
+from ..config import DB_PATH, DATA_DIR
 from ..schema import normalize_document
 
 _SCHEMA = """
@@ -67,8 +68,9 @@ def init_db() -> None:
 def list_documents() -> list[dict[str, Any]]:
     with _db() as conn:
         rows = conn.execute(
-            "SELECT id, title, template_id, created_at, updated_at FROM documents "
-            "ORDER BY updated_at DESC"
+            "SELECT id, title, template_id, created_at, updated_at, "
+            "(json_extract(data, '$.sourcePdf') IS NOT NULL) AS has_source_pdf "
+            "FROM documents ORDER BY updated_at DESC"
         ).fetchall()
     return [
         {
@@ -77,6 +79,7 @@ def list_documents() -> list[dict[str, Any]]:
             "templateId": r["template_id"],
             "createdAt": r["created_at"],
             "updatedAt": r["updated_at"],
+            "hasSourcePdf": bool(r["has_source_pdf"]),
         }
         for r in rows
     ]
@@ -154,8 +157,13 @@ def restore_version(doc_id: str, version_id: int) -> dict[str, Any] | None:
 
 
 def delete_document(doc_id: str) -> bool:
+    doc = get_document(doc_id)
+    if not doc:
+        return False
+    _remove_source_pdf(doc)
     with _db() as conn:
         cur = conn.execute("DELETE FROM documents WHERE id = ?", (doc_id,))
+        conn.execute("DELETE FROM document_versions WHERE doc_id = ?", (doc_id,))
     return cur.rowcount > 0
 
 
@@ -165,8 +173,103 @@ def duplicate_document(doc_id: str) -> dict[str, Any] | None:
         return None
     src["id"] = ""
     src["title"] = f"{src['title']} 副本"
+    # 原始 PDF 参照复制一份独立文件（避免删一份简历影响另一份）
+    new_pdf = _copy_source_pdf(src.get("sourcePdf"))
+    if new_pdf:
+        src["sourcePdf"] = new_pdf
+    else:
+        src.pop("sourcePdf", None)
     from ..schema import new_document
 
     fresh = new_document(template_id=src["templateId"], title=src["title"])
     fresh.update({k: v for k, v in src.items() if k not in ("id", "title")})
     return save_document(fresh)
+
+
+# ---------------------------------------------------------------- 原始 PDF 附件
+
+
+def _imports_dir() -> Path:
+    d = DATA_DIR / "imports"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _safe_source_pdf(rel: str) -> bool:
+    return bool(rel) and ".." not in rel.split("/") and not rel.startswith(("/", "\\")) and ":" not in rel
+
+
+def _remove_source_pdf(doc: dict[str, Any]) -> None:
+    rel = doc.get("sourcePdf")
+    if not isinstance(rel, str) or not _safe_source_pdf(rel):
+        return
+    # 页面图片缓存一并清理
+    from . import source_pdf
+
+    source_pdf.delete_pages(rel)
+    path = DATA_DIR / rel
+    # Windows 下文件可能被读取句柄短暂锁定（如 /data/ 路由刚发完），重试几次
+    for _ in range(3):
+        try:
+            path.unlink(missing_ok=True)
+            return
+        except OSError:
+            time.sleep(0.15)
+
+
+def sweep_orphan_source_pdfs(max_age_s: int = 3600) -> int:
+    """清理没有文档引用的原始 PDF（删除失败的残留 / 异常中断的孤儿）。
+
+    只清理修改时间超过 max_age_s 的文件，避免误删刚上传正在处理的文件。
+    """
+    imports = DATA_DIR / "imports"
+    if not imports.is_dir():
+        return 0
+    with _db() as conn:
+        rows = conn.execute("SELECT data FROM documents").fetchall()
+    referenced = set()
+    for r in rows:
+        try:
+            d = json.loads(r["data"])
+        except (json.JSONDecodeError, KeyError):
+            continue
+        rel = d.get("sourcePdf")
+        if isinstance(rel, str):
+            referenced.add(rel.rsplit("/", 1)[-1])
+    now = time.time()
+    removed = 0
+    for p in imports.glob("*.pdf"):
+        if p.name in referenced:
+            continue
+        try:
+            if now - p.stat().st_mtime > max_age_s:
+                p.unlink()
+                removed += 1
+        except OSError:
+            continue
+    # 页面图片缓存：目录名 = PDF stem，无引用的一并清掉
+    pages_root = imports / "pages"
+    if pages_root.is_dir():
+        for d in pages_root.iterdir():
+            if d.is_dir() and f"{d.name}.pdf" not in referenced:
+                try:
+                    if now - d.stat().st_mtime > max_age_s:
+                        shutil.rmtree(d, ignore_errors=True)
+                        removed += 1
+                except OSError:
+                    continue
+    return removed
+
+
+def _copy_source_pdf(rel: Any) -> str | None:
+    if not isinstance(rel, str) or not _safe_source_pdf(rel):
+        return None
+    src = DATA_DIR / rel
+    if not src.is_file():
+        return None
+    import shutil
+    import uuid
+
+    dst = _imports_dir() / f"{uuid.uuid4().hex}.pdf"
+    shutil.copy2(src, dst)
+    return f"imports/{dst.name}"

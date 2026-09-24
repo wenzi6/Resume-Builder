@@ -21,11 +21,17 @@ def app():
 
 @pytest.fixture()
 def client(app, tmp_path, monkeypatch):
-    """隔离的 test client：使用临时数据库，不碰真实数据。"""
+    """隔离的 test client：临时数据库 + 临时数据目录，不碰真实数据。"""
     from resume_builder.services import documents as store
+    from resume_builder.api import imports as imports_api
+    from resume_builder import config
 
     db = tmp_path / "test_resumes.db"
     monkeypatch.setattr(store, "DB_PATH", db)
+    # 附件（对照导入的原始 PDF）也落到临时目录；路由读 config.DATA_DIR（请求时求值）
+    monkeypatch.setattr(config, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(imports_api, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(store, "DATA_DIR", tmp_path)
     store.init_db()
     app.config["TESTING"] = True
     yield app.test_client()

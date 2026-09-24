@@ -86,9 +86,10 @@ export function bindImportDialog() {
     const file = e.target.files[0];
     if (!file) return;
     await handleImport(async () => {
-      const { document: doc } = await api.importPdf(file);
-      return doc;
-    }, `已解析 PDF「${file.name}」，请检查并补全内容`);
+      const { document: doc, pdf } = await api.importPdf(file);
+      return { doc, extra: pdf };
+    }, `已按原格式对照导入「${file.name}」`, (pdf) =>
+      pdf ? `右侧「原始格式」保留原 PDF，左侧模块可编辑（共 ${pdf.pages || "?"} 页）` : "");
     e.target.value = "";
   });
 
@@ -113,9 +114,11 @@ function cap(s) {
 }
 
 /** 导入JSON/PDF：保存为新文档并打开。 */
-async function handleImport(fn, successMsg) {
+async function handleImport(fn, successMsg, hintFn) {
   try {
-    const imported = await fn();
+    const result = await fn();
+    const imported = result?.doc || result;
+    const extra = result?.extra;
     if (!imported) throw new Error("返回数据为空");
     // 保存为服务端文档（导入的文档带新 id，直接作为新文档保存）
     if (store.dirty) await store.saveNow();
@@ -126,6 +129,10 @@ async function handleImport(fn, successMsg) {
     renderDocList(document.getElementById("docList"));
     document.getElementById("importOverlay").hidden = true;
     toastSuccess(successMsg);
+    if (hintFn) {
+      const hint = hintFn(extra);
+      if (hint) toast(hint, "info", 6000);
+    }
   } catch (e) {
     toastError("导入失败：" + e.message);
   }
