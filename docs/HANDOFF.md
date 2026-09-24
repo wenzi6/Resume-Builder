@@ -16,7 +16,7 @@
 |---|---|
 | PDF 中文字体 Type3 降级（原 P0 阻塞） | ✅ **已解决**：CFF OTF → glyf TTF + 剥离部首 cmap，全模板 Type0、中文可检索 |
 | 前端编辑器（`static/`） | ✅ **已从零完成**：12 个文件，全部交互经真实浏览器验证 |
-| 正式测试套件 | ✅ **pytest 117 用例全绿**（字体 / 分页 / ATS / 迁移 / PDF 导入 / 视觉回归 / 新功能 / 对照导入回归） |
+| 正式测试套件 | ✅ **pytest 125 用例全绿**（字体 / 分页 / ATS / 迁移 / PDF 导入 / 视觉回归 / 新功能 / 对照导入 / 原格式导出回归） |
 | 视觉走查 | ✅ 6 套模板 → PDF → PNG 逐套检查通过，且有基线像素回归测试 |
 | 优化轮（导出自检 / 自动适应 / 自有字体 / 版本历史 / HTML 导出 / undo / i18n / CI） | ✅ **已完成并经浏览器 10/10 走查**，详见 §3.0 |
 | README / git init / 清理 | ✅ 已完成（`.gitignore` 规范，含 CI 工作流） |
@@ -65,6 +65,7 @@
 | 分页线精确化 | `pdf_worker.py` 返回 `effTop` / `breaks` | `pagination.js` 打印坐标反算 |
 | i18n（中 / 英） | — | `static/js/i18n.js` + 顶栏「EN / 中」 |
 | PDF 对照导入 | `api/imports.py` 落盘原始 PDF + `services/source_pdf.py` 逐页渲染 + 删除/复制/孤立清扫 | 右栏「原始格式」视图（页面图片，全环境一致）+ 视图切换 + 原生查看器入口 |
+| 原格式导出 | `services/pdf_patch.py`（Span 级文本替换：改/删/未定位分级处理）+ export mode=original | 「导出 PDF」默认原格式（修改打进原 PDF），「模板排版」为次要按钮 |
 | 临时文件清理 | `engine/pdf.py sweep_stale_renders()`（启动时清扫 >1h 残留） | — |
 | photo 安全 | `sections.py _safe_photo_src()`（仅 http(s) / 站内路径） | — |
 | CI | `.github/workflows/ci.yml`（Windows + Playwright） | — |
@@ -87,6 +88,8 @@
 | 12 | `api.getJson is not a function` | `api` 对象没挂基础方法，designPanel / sidebar 直接调 | api 对象补 `getJson/postJson/putJson/del` |
 | 13 | 对照导入删除文档后 PDF 残留 | Windows 下 `/data/` 路由句柄短暂锁文件，unlink 静默失败 | 删除重试 3 次 + 启动时孤立文件/页面缓存清扫 |
 | 14 | 无头 Chromium 的 PDF 插件不渲染 | 对照视图原用 iframe 直显 PDF，无头环境不可靠 | 改为服务端 pymupdf 渲染逐页 PNG（dpi 需传 int）+ 「原生查看器打开」入口 |
+| 15 | 编辑 app.js 时多了一个 `}` | bindStoreEvents 被提前闭合，后续 store.on 全部孤立 → 整个编辑器 JS 挂掉 | `node --input-type=module --check` 加入验证流程；浏览器 import 逐个模块定位 |
+| 16 | PDF 导入解析质量差 | 词按无空格 join 丢视觉间隔；email 正则 `\w` 匹配汉字把电话/地址糅进邮箱；公司职位不拆 | 词间水平间距 >4px 加空格；email 改 ASCII 且字母开头；机构后缀/职位词拆分 + 日期区间尾巴还原 |
 
 ---
 

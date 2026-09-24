@@ -1,4 +1,4 @@
-"""导出 API：PDF / Word / JSON / HTML。"""
+"""导出 API：PDF（模板 / 原格式）/ Word / JSON / HTML。"""
 from __future__ import annotations
 
 import io
@@ -53,11 +53,21 @@ def _pdf_quality_warnings(doc: dict, data: bytes) -> list[str]:
     return warnings
 
 
+def _with_warnings(resp, warnings: list[str]):
+    if warnings:
+        resp.headers["X-Resume-Warnings"] = urllib.parse.quote(
+            json.dumps(warnings, ensure_ascii=False))
+    return resp
+
+
 @bp.post("/export/pdf")
 def export_pdf():
     doc, err = _resolve_doc()
     if err:
         return err
+    body = request.get_json(silent=True) or {}
+    if body.get("mode") == "original":
+        return _export_pdf_original(doc)
     try:
         data = pdf_engine.render_pdf_bytes(doc)
     except Exception as e:  # noqa: BLE001
@@ -67,10 +77,38 @@ def export_pdf():
         download_name=f"{doc.get('title') or 'resume'}.pdf",
         mimetype="application/pdf",
     )
-    warnings = _pdf_quality_warnings(doc, data)
-    if warnings:
-        resp.headers["X-Resume-Warnings"] = urllib.parse.quote(json.dumps(warnings, ensure_ascii=False))
-    return resp
+    return _with_warnings(resp, _pdf_quality_warnings(doc, data))
+
+
+def _export_pdf_original(doc: dict):
+    """原格式导出：把模块修改打进原始 PDF，未改动部分保持原版式。"""
+    from ..services import pdf_patch
+
+    rel = doc.get("sourcePdf")
+    if not rel:
+        return jsonify({"error": "该文档没有关联的原始 PDF（非对照导入），请用模板导出"}), 400
+    try:
+        result = pdf_patch.patch_pdf(rel, doc.get("sourceContent"), doc.get("content"))
+    except FileNotFoundError as e:
+        return jsonify({"error": str(e)}), 404
+    except Exception as e:  # noqa: BLE001
+        return jsonify({"error": f"原格式导出失败：{e}"}), 500
+
+    resp = send_file(
+        io.BytesIO(result["data"]), as_attachment=True,
+        download_name=f"{doc.get('title') or 'resume'}.pdf",
+        mimetype="application/pdf",
+    )
+    notices: list[str] = []
+    if result["unchanged"]:
+        notices.append("内容无修改，已导出原始 PDF")
+    else:
+        notices.append(f"已按原格式应用 {len(result['applied'])} 处修改")
+        for f in result["failed"][:5]:
+            notices.append(f"未能应用：{f['path']}（{f['reason']}）")
+        if len(result["failed"]) > 5:
+            notices.append(f"…等共 {len(result['failed'])} 处未应用")
+    return _with_warnings(resp, notices)
 
 
 @bp.post("/export/docx")

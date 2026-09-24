@@ -32,6 +32,14 @@ import { openJsonEditor, closeJsonEditor, applyJson, bindImportDialog, renderAll
 
 /* ================= 启动 ================= */
 
+// 对照导入文档：主导出按钮切到原格式，显示「模板排版」次要按钮
+function syncExportButtons() {
+  const hasSource = !!store.doc?.sourcePdf;
+  document.getElementById("btnExportPdfTpl").hidden = !hasSource;
+  document.getElementById("btnExportPdf").title =
+    hasSource ? "按原始格式导出（修改应用进原 PDF）" : "";
+}
+
 async function boot() {
   applyI18n();
   bindConfirmDialog();
@@ -78,6 +86,7 @@ async function boot() {
       toastSuccess("已为你创建示例简历，可直接修改");
     }
     store.init({ doc, templates, schema, documents: docs });
+    syncExportButtons();
     renderAll();
     renderDocList(document.getElementById("docList"));
     renderTemplatePicker();
@@ -100,7 +109,7 @@ function bindStoreEvents() {
     renderTemplateName();
   });
 
-  // 文档整体替换（切换 / 撤销 / 恢复版本）→ 表单与区块树必须重画
+  // 对照导入文档：主导出按钮切到原格式，显示「模板排版」次要按钮
   store.on("doc-swapped", () => {
     renderForm(document.getElementById("formArea"));
     renderSectionTree(document.getElementById("sectionTree"));
@@ -109,6 +118,7 @@ function bindStoreEvents() {
     } else {
       syncDesignValues();
     }
+    syncExportButtons();
   });
 
   store.on("preview", () => doRenderPreview());
@@ -151,10 +161,11 @@ function bindTopbar() {
   });
   title.addEventListener("change", () => store.saveNow());
 
-  document.getElementById("btnExportPdf").addEventListener("click", () => exportResume("pdf"));
+  document.getElementById("btnExportPdf").addEventListener("click", () => exportResume("pdf", "original"));
   document.getElementById("btnExportDocx").addEventListener("click", () => exportResume("docx"));
   document.getElementById("btnExportJson").addEventListener("click", () => exportResume("json"));
   document.getElementById("btnExportHtml").addEventListener("click", () => exportResume("html"));
+  document.getElementById("btnExportPdfTpl").addEventListener("click", () => exportResume("pdf", "template"));
 
   document.getElementById("btnJson").addEventListener("click", openJsonEditor);
   document.getElementById("btnApplyJson").addEventListener("click", applyJson);
@@ -194,7 +205,7 @@ function bindTopbar() {
   });
 }
 
-async function exportResume(fmt) {
+async function exportResume(fmt, mode = "template") {
   const doc = store.doc;
   if (!doc) return;
   if (store.dirty) await store.saveNow();
@@ -203,11 +214,16 @@ async function exportResume(fmt) {
   try {
     let warnings = [];
     if (fmt === "pdf") {
-      if (info && info.pageCount > 1) {
+      // 对照导入的文档：默认按原格式导出（修改打进原始 PDF），模板导出为次要选项
+      const useOriginal = mode === "original" && !!doc.sourcePdf;
+      if (!useOriginal && info && info.pageCount > 1) {
         toast(t("toast.exporting", { n: info.pageCount }));
       }
-      warnings = await postDownloadName("/api/v1/export/pdf", { id: doc.id }, `${name}.pdf`);
-      toastSuccess(t("toast.pdfOk"));
+      warnings = await postDownloadName(
+        "/api/v1/export/pdf",
+        useOriginal ? { id: doc.id, mode: "original" } : { id: doc.id },
+        `${name}.pdf`);
+      toastSuccess(useOriginal ? "已按原格式导出 PDF" : t("toast.pdfOk"));
     } else if (fmt === "docx") {
       warnings = await postDownloadName("/api/v1/export/docx", { id: doc.id }, `${name}.docx`);
       toastSuccess(t("toast.docxOk"));

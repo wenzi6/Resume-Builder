@@ -1,6 +1,7 @@
 """导入 API：JSON 简历 / PDF 简历。"""
 from __future__ import annotations
 
+import copy
 import uuid
 
 from flask import Blueprint, jsonify, request
@@ -68,6 +69,8 @@ def import_pdf():
     doc = new_document(title=f"导入-{file.filename[:20]}")
     doc["content"] = content
     doc["sourcePdf"] = f"imports/{stored_name}"
+    # 存档导入时的解析结果：原格式导出据此计算「用户改了什么」
+    doc["sourceContent"] = copy.deepcopy(content)
     return jsonify({
         "document": doc,
         "rawText": extracted.get("raw_text", "")[:2000],

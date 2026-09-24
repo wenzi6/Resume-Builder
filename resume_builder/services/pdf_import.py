@@ -71,6 +71,7 @@ def extract_pdf(file_storage) -> dict[str, Any]:
                 page_words.append({
                     "text": w.get("text", ""),
                     "x0": round(w.get("x0", 0), 1),
+                    "x1": round(w.get("x1", 0), 1),
                     "y0": round(w.get("top", 0), 1),
                     "size": size, "bold": is_bold,
                 })
@@ -106,7 +107,14 @@ def _parse_structure(result: dict) -> dict:
 
     sections = []
     for line in lines:
-        text = "".join(w["text"] for w in line)
+        # 词间水平间距 > 4px 视为有间隔（还原「公司 职位」「电话 邮箱」的视觉分段）
+        text = ""
+        prev_x1 = None
+        for w in line:
+            if prev_x1 is not None and w["x0"] - prev_x1 > 4:
+                text += " "
+            text += w["text"]
+            prev_x1 = w.get("x1", w["x0"])
         max_size = max(w["size"] for w in line)
         is_bold = any(w["bold"] for w in line)
         sections.append({
@@ -183,7 +191,8 @@ def build_document_from_pdf(extracted: dict) -> dict:
     # 2) 联系信息
     if m := re.search(r"1[3-9]\d{9}", text):
         resume["profile"]["phone"] = m.group(0)
-    if m := re.search(r"[\w.-]+@[\w.-]+\.\w+", text):
+    # 邮箱必须用 ASCII 字符类且以字母开头：\w 会匹配汉字、数字开头会粘上前面的电话
+    if m := re.search(r"[A-Za-z][A-Za-z0-9._%+-]*@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", text):
         resume["profile"]["email"] = m.group(0)
     if m := re.search(r"年龄[：:]\s*(\d{1,2})\s*岁", text) or re.search(r"(\d{1,2})\s*岁", text):
         resume["profile"]["age"] = m.group(1)
@@ -197,6 +206,10 @@ def build_document_from_pdf(extracted: dict) -> dict:
         resume["profile"]["availableDate"] = m.group(1).strip()
     if m := re.search(r"(?:现居|所在地|地址|城市)[：:]\s*([^\s，,。；;|]+)", text):
         resume["profile"]["location"] = m.group(1).strip()
+    elif not resume["profile"]["location"]:
+        # 无标签兜底：页眉区域找「××市××区」形态（限制在开头，避免误匹配正文）
+        if m := re.search(r"([\u4e00-\u9fa5]{2,6}市[\u4e00-\u9fa5]{1,8}[区县]|[\u4e00-\u9fa5]{2,6}省[\u4e00-\u9fa5]{1,8}市)", text[:300]):
+            resume["profile"]["location"] = m.group(1)
 
     # 3) 求职意向
     title_line = ""
@@ -253,12 +266,49 @@ def build_document_from_pdf(extracted: dict) -> dict:
     return resume
 
 
+JOB_TITLE_TAIL_RE = re.compile(
+    r"((?:高级|资深|初级|初中级|实习)?[\u4e00-\u9fa5A-Za-z/+]{1,8}"
+    r"(?:工程师|开发|专员|经理|主管|总监|设计师|架构师|分析师|顾问|助理|运营|测试|负责人|支持|专家|实习))$"
+)
+
+# 中文机构名后缀（公司拆分的最强信号）
+ORG_SUFFIX_RE = re.compile(
+    r"^(.*?(?:有限责任公司|公司|集团|中心|研究院|研究所|银行|大学|学院|学校|"
+    r"事务所|工作室|事业部|部门|厂|店|医院|政府|协会))(.*)$"
+)
+
+
+def _split_company_title(rest: str) -> tuple[str, str]:
+    """把「公司 职位」连行拆开。优先：空格 > 机构后缀 > 职位词后缀。"""
+    # 去掉首尾残留的破折号 / 间隔号 / 空白（日期区间被拆掉后的残渣）
+    rest = re.sub(r"^[\u2010-\u2015\-~–•·\s]+", "", rest)
+    rest = re.sub(r"[\u2010-\u2015\-~–•·\s]+$", "", rest)
+    parts = [p.strip() for p in re.split(r"[\s·•]+|(?<=[\u4e00-\u9fa5])(?=[A-Za-z])", rest) if p.strip()]
+    # 只保留含中日韩文字或字母数字的片段（过滤纯标点残渣）
+    parts = [p for p in parts if re.search(r"[\u4e00-\u9fa5A-Za-z0-9]", p)]
+    if len(parts) >= 2 and all(len(p) <= 16 for p in parts[:2]):
+        return parts[0], parts[1]
+    if m := ORG_SUFFIX_RE.match(rest):
+        org, title = m.group(1), m.group(2).strip()
+        if title and len(org) >= 2:
+            return org, title
+    if tm := JOB_TITLE_TAIL_RE.search(rest):
+        if tm.start() >= 2:
+            return rest[:tm.start()], tm.group(1)
+    return rest, ""
+
+
 def _parse_work(work_lines: list[str]) -> list[dict]:
     items, cur = [], None
     for line in work_lines:
+        # 先把行内所有日期片段剔掉，避免「公司 职位 日期」连行时干扰拆分
+        date_stripped = DATE_RE.sub(" ", line)
+        date_stripped = re.sub(
+            r"[\s]*[\u2010-\u2015\-~–]+[\s]*(?:20\d{2}[-~.]\d{2,4}|至今|今)", " ", date_stripped)
+        rest = date_stripped.strip()
         is_company_like = (
-            re.fullmatch(r"[\u4e00-\u9fa5A-Za-z（）()&·]{2,16}", line)
-            and not VERB_START_RE.match(line)
+            re.fullmatch(r"[\u4e00-\u9fa5A-Za-z（）()&·]{2,16}", rest)
+            and not VERB_START_RE.match(rest)
             and len(work_lines) > 3
         )
         if DATE_RE.search(line) or is_company_like:
@@ -267,9 +317,14 @@ def _parse_work(work_lines: list[str]) -> list[dict]:
             cur = {"company": "", "jobTitle": "", "date": "", "descriptions": []}
             if dm := DATE_RE.search(line):
                 cur["date"] = dm.group(0)
-            rest = line.replace(dm.group(0) if dm else "", "").strip()
-            if rest and len(rest) <= 20:
-                cur["company"] = rest
+                # 日期区间尾巴（– 至今 / – 2021-02）拼回去
+                tail = re.search(
+                    r"[\u2010-\u2015\-~–]\s*(20\d{2}[-~.]\d{2,4}|至今|今)", line[dm.end():])
+                if tail:
+                    cur["date"] = f"{dm.group(0)} – {tail.group(1)}"
+            company, title = _split_company_title(rest)
+            cur["company"] = company
+            cur["jobTitle"] = title
         elif cur:
             clean = LABEL_PREFIX_RE.sub("", line).strip()
             if clean:
@@ -286,24 +341,48 @@ def _parse_work(work_lines: list[str]) -> list[dict]:
     return [w for w in items if w["descriptions"] or w["company"] or w["jobTitle"]]
 
 
+def _strip_dates(line: str) -> str:
+    """去掉行内全部日期片段（含区间尾巴与孤立破折号），返回剩余文本。"""
+    out = DATE_RE.sub(" ", line)
+    out = re.sub(
+        r"[\s]*[\u2010-\u2015\-~–]+[\s]*(?:20\d{2}[-~.]\d{2,4}|至今|今)", " ", out)
+    # 丢掉纯破折号令牌（日期区间被拆掉后的残渣）
+    out = " ".join(t for t in out.split() if not re.fullmatch(r"[\u2010-\u2015\-~–]+", t))
+    return out.strip()
+
+
+def _full_date(line: str) -> str:
+    """取行内第一个完整日期（含区间尾巴）。"""
+    if dm := DATE_RE.search(line):
+        tail = re.search(
+            r"[\u2010-\u2015\-~–]\s*(20\d{2}[-~.]\d{2,4}|至今|今)", line[dm.end():])
+        if tail:
+            return f"{dm.group(0)} – {tail.group(1)}"
+        return dm.group(0)
+    return ""
+
+
 def _parse_projects(proj_lines: list[str]) -> list[dict]:
     items, cur = [], None
     for line in proj_lines:
+        rest = _strip_dates(line)
         is_proj_name = (
-            re.fullmatch(r"[\u4e00-\u9fa5A-Za-z0-9（）()&·\-]{2,30}", line)
-            and not ROLE_WORDS.match(line)
-            and not re.match(r"^(项目介绍|项目内容|岗位职责|工作内容|职责|成果|1\.|2\.|3\.)", line)
-            and not VERB_START_RE.match(line)
+            re.fullmatch(r"[\u4e00-\u9fa5A-Za-z0-9（）()&·\-]{2,30}", rest)
+            and not ROLE_WORDS.match(rest)
+            and not re.match(r"^(项目介绍|项目内容|岗位职责|工作内容|职责|成果|1\.|2\.|3\.)", rest)
+            and not VERB_START_RE.match(rest)
         )
         if DATE_RE.search(line) or is_proj_name:
             if cur:
                 items.append(cur)
-            cur = {"project": "", "jobTitle": "", "date": "", "descriptions": []}
-            if dm := DATE_RE.search(line):
-                cur["date"] = dm.group(0)
-            rest = line.replace(dm.group(0) if dm else "", "").strip()
+            cur = {"project": "", "jobTitle": "", "date": _full_date(line), "descriptions": []}
             if rest and len(rest) <= 24:
                 cur["project"] = rest
+                # 「项目名 角色」连行：按职位词拆出角色
+                if tm := JOB_TITLE_TAIL_RE.search(rest):
+                    if tm.start() >= 2:
+                        cur["project"] = rest[:tm.start()]
+                        cur["jobTitle"] = tm.group(1)
         elif cur:
             clean = LABEL_PREFIX_RE.sub("", line).strip()
             if clean:
@@ -324,11 +403,15 @@ def _parse_educations(edu_lines: list[str]) -> list[dict]:
         if re.search(r"20\d{2}[-~.]", line):
             if cur:
                 items.append(cur)
-            cur = {"school": "", "degree": "", "date": "", "descriptions": []}
-            if dm := re.search(r"20\d{2}[-~.]\d{2,4}(?:\s*[-~]\s*(?:20\d{2}[-~.]\d{2,4}|至今))?", line):
-                cur["date"] = dm.group(0)
-            rest = line.replace(dm.group(0) if dm else "", "").strip()
-            if rest:
+            cur = {"school": "", "degree": "", "date": _full_date(line), "descriptions": []}
+            rest = _strip_dates(line)
+            # 「学校 学历·专业」连行：学校名通常以 大学/学院/学校/大学 结尾
+            if m := re.match(r"^(.*?(?:大学|学院|学校|中学|高中|职校|职业技术学院))(.*)$", rest):
+                cur["school"] = m.group(1)
+                degree = m.group(2).strip(" ··、,，|-")
+                if degree:
+                    cur["degree"] = degree
+            elif rest:
                 cur["school"] = rest
         elif cur:
             d = LABEL_PREFIX_RE.sub("", line).strip()

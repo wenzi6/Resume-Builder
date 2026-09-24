@@ -179,6 +179,7 @@ def normalize_document(doc: Any) -> dict[str, Any]:
         doc = {}
     # 先在原始输入上取附件路径（v1 迁移会重建字典，之后再取就丢了）
     raw_source_pdf = doc.get("sourcePdf")
+    raw_source_content = doc.get("sourceContent")
     if doc.get("version") != DOCUMENT_VERSION and (doc.get("_sections") or "content" not in doc):
         doc = migrate_legacy(doc)
 
@@ -216,6 +217,10 @@ def normalize_document(doc: Any) -> dict[str, Any]:
     # 原始 PDF 参照（对照导入）：相对 data/ 的安全路径，随文档持久化
     if isinstance(raw_source_pdf, str) and _safe_rel_pdf_path(raw_source_pdf):
         out["sourcePdf"] = raw_source_pdf
+    # 导入时的解析快照：原格式导出据此 diff 出用户的修改
+    raw_source_content = doc.get("sourceContent")
+    if isinstance(raw_source_content, dict):
+        out["sourceContent"] = raw_source_content
     return out
 
 

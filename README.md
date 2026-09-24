@@ -58,7 +58,8 @@ python app.py
 - **导出**：PDF（Playwright + `@page` A4）、Word（python-docx，字号 / 行距 / 边距与 HTML 一致）、JSON（含信封格式）、**自包含 HTML**（字体 base64 内嵌，离线可开）
 - **导出质量自检**：每次导出 PDF 后校验内嵌字体——发现 Type3 降级（用户导入的模板引用了不可嵌入的字体）会通过响应头返回警告，编辑器即时提示
 - **导入**：JSON（兼容 v1 旧格式，自动迁移，换发新 id 不覆盖已有简历）、模板（.html / .zip，含路径穿越防护）
-- **PDF 对照导入**：解析为模块化内容的同时，**原始 PDF 原格式保留**在右栏「原始格式」视图（服务端渲染为逐页图片，全环境一致）；左侧模块编辑不影响原格式，导出时按当前模板重新排版；可随时切回「模板预览」，或用「原生查看器打开」看原文
+- **PDF 对照导入**：解析为模块化内容的同时，**原始 PDF 原格式保留**在右栏「原始格式」视图（服务端渲染为逐页图片，全环境一致）；左侧模块编辑不影响原格式；可随时切回「模板预览」，或用「原生查看器打开」看原文
+- **原格式导出**：对照导入的文档，「导出 PDF」默认把模块修改**打进原始 PDF**（PyMuPDF Span 级文本替换：改动处按原字体字号重排文字、删除处 redact、未改动部分原版式不变）；「模板排版」按钮则按当前模板重新排版。无法应用的改动会在导出时明确告知
 - **自有字体**：上传 .ttf / .otf → 自动检测 CFF 并转换为 glyf + 剥离部首 cmap → 注册进设计面板，PDF 导出时正常嵌入为 Type0
 - **持久化**：SQLite（WAL 模式）多简历管理 + 每份文档最近 20 份历史快照（`data/resumes.db`，运行时自动生成）
 
@@ -164,7 +165,7 @@ Chromium 的 PDF 后端**无法正确嵌入 CFF 轮廓的 web font**，会降级
 $env:PYTHONPATH = 'E:\pythonProject\resume-builder'
 
 python app.py                        # 启动（http://localhost:5000）
-python -m pytest tests/ -q           # 全部测试（117 用例，PDF 用例会真实起 Chromium）
+python -m pytest tests/ -q           # 全部测试（125 用例，PDF 用例会真实起 Chromium）
 python tests/debug_pdf_fonts.py      # 诊断：PDF 内嵌字体原始信息 + 渲染页面图
 ```
 
@@ -181,6 +182,7 @@ python tests/debug_pdf_fonts.py      # 诊断：PDF 内嵌字体原始信息 + �
 | `test_visual_regression.py` | 视觉回归：6 模板位图与基线像素对比（`REGEN_BASELINES=1` 更新基线） |
 | `test_features.py` | 字体上传 / 自动适应 / HTML 导出 / 版本历史 / 导出字体自检 / photo 安全 |
 | `test_source_pdf.py` | 对照导入：原始 PDF 落盘 / 往返 / 删除清理 / 复制独立 / 逐页渲染 / 安全路径 |
+| `test_original_export.py` | 原格式导出：无修改原样导出 / 修改应用且版式不变 / 删除 redact / 兜底与报错 |
 
 ### 环境坑（都踩过）
 
