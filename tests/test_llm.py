@@ -756,3 +756,29 @@ def test_api_list_models(client, monkeypatch):
 def test_api_list_models_unconfigured(client):
     r = client.get("/api/v1/llm/models")
     assert r.status_code == 400
+
+
+# ---------------- 配置保存：部分填写不再 400 ----------------
+
+def test_config_allows_missing_model(client):
+    """只填 base_url + key（模型名空）也应保存成功——不再 400 拒绝。
+
+    历史 bug：用户填了 Key 但没选预设（模型名为空）→ PUT 400 → 配置从不落盘
+    → 报「尚未配置」且下次打开要重填。
+    """
+    r = client.put("/api/v1/llm/config", json={
+        "base_url": "https://api.deepseek.com", "api_key": "sk-x", "model": ""})
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body["base_url"] == "https://api.deepseek.com"
+    assert body["has_key"] is True
+    assert body["configured"] is False          # 缺模型 → 未配置，但已保存
+    # 重新打开（GET）应保留已填内容
+    again = client.get("/api/v1/llm/config").get_json()
+    assert again["base_url"] == "https://api.deepseek.com"
+    assert again["has_key"] is True
+
+
+def test_config_still_rejects_empty_base_url(client):
+    r = client.put("/api/v1/llm/config", json={"base_url": "", "model": "m"})
+    assert r.status_code == 400

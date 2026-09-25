@@ -30,11 +30,12 @@ def get_config():
 def put_config():
     body = _body()
     base_url = str(body.get("base_url") or "").strip()
-    model = str(body.get("model") or "").strip()
-    if not base_url or not model:
-        return jsonify({"error": "Base URL 和模型名称不能为空"}), 400
+    if not base_url:
+        return jsonify({"error": "Base URL 不能为空"}), 400
     if not base_url.startswith(("http://", "https://")):
         return jsonify({"error": "Base URL 必须以 http:// 或 https:// 开头"}), 400
+    # model 允许为空：保存已填部分（configured 自然为 false，前端引导补全），
+    # 不再 400 拒绝——否则用户填了 Key 却保存失败，还以为是没填
     try:
         llm.save_config(body)
     except Exception as e:  # noqa: BLE001

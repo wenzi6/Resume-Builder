@@ -211,20 +211,51 @@ function updateFormatHint() {
   hint.hidden = !text;
 }
 
-async function saveAiConfig() {
+let aiConfigSaveTimer = null;
+
+async function saveAiConfig(opts = {}) {
+  const silent = !!opts.silent;
   const baseUrl = document.getElementById("aiBaseUrl").value.trim();
   const model = document.getElementById("aiModel").value.trim();
   const apiKey = document.getElementById("aiApiKey").value.trim();
   const format = document.getElementById("aiFormat").value;
   const timeout = parseInt(document.getElementById("aiTimeout").value, 10) || 90;
+  if (!silent) setStatus("aiConfigStatus", "保存中…");
   try {
     aiCfg = await api.putJson("/api/v1/llm/config", { base_url: baseUrl, model, api_key: apiKey, format, timeout });
-    document.getElementById("aiApiKey").value = "";
-    document.getElementById("aiApiKey").placeholder = "已保存（留空则不修改）";
-    setStatus("aiConfigStatus", "✅ 已保存", "ok");
-    toastSuccess("AI 配置已保存");
+    if (!silent) {
+      document.getElementById("aiApiKey").value = "";
+      document.getElementById("aiApiKey").placeholder = "已保存（留空则不修改）";
+      const missing = [];
+      if (!aiCfg.base_url) missing.push("Base URL");
+      if (!aiCfg.model) missing.push("模型名称");
+      if (!aiCfg.has_key) missing.push("API Key");
+      if (missing.length) {
+        setStatus("aiConfigStatus", `已保存，但还缺：${missing.join("、")}`, "error");
+      } else {
+        setStatus("aiConfigStatus", "✅ 已保存", "ok");
+        toastSuccess("AI 配置已保存");
+      }
+    }
   } catch (e) {
-    setStatus("aiConfigStatus", e.message, "error");
+    if (!silent) setStatus("aiConfigStatus", e.message, "error");
+  }
+}
+
+/** 字段变更 → 防抖 800ms 自动保存（与产品其他部分一致，不再需要手动点保存）。 */
+function scheduleAiConfigSave() {
+  clearTimeout(aiConfigSaveTimer);
+  setStatus("aiConfigStatus", "");
+  aiConfigSaveTimer = setTimeout(() => saveAiConfig({ silent: true }), 800);
+}
+
+/** 绑定 AI 配置字段的自动保存。 */
+function bindAiConfigAutosave() {
+  for (const id of ["aiBaseUrl", "aiModel", "aiApiKey"]) {
+    document.getElementById(id).addEventListener("input", scheduleAiConfigSave);
+  }
+  for (const id of ["aiFormat", "aiTimeout"]) {
+    document.getElementById(id).addEventListener("change", scheduleAiConfigSave);
   }
 }
 
@@ -247,8 +278,13 @@ async function testAiConnection() {
 function ensureConfigured() {
   if (aiCfg?.configured) return true;
   switchAiTab("settings");
-  setStatus("aiConfigStatus", "请先完成 AI 配置并测试连接", "error");
-  toast("请先配置 AI 服务", "error");
+  const missing = [];
+  if (!aiCfg?.base_url) missing.push("Base URL");
+  if (!aiCfg?.model) missing.push("模型名称");
+  if (!aiCfg?.has_key) missing.push("API Key");
+  const msg = missing.length ? `AI 尚未配置完成，还缺：${missing.join("、")}` : "AI 尚未配置";
+  setStatus("aiConfigStatus", msg + "（填完自动保存）", "error");
+  toast(msg, "error");
   return false;
 }
 
@@ -1051,7 +1087,8 @@ async function fetchModels() {
       item.addEventListener("click", () => {
         document.getElementById("aiModel").value = m.id;
         dd.hidden = true;
-        setStatus("aiConfigStatus", `已选择模型 ${m.id}，记得保存配置`, "");
+        setStatus("aiConfigStatus", `已选择模型 ${m.id}`, "");
+        scheduleAiConfigSave();
       });
       dd.appendChild(item);
     }
@@ -1076,7 +1113,8 @@ export function bindAiPanel() {
   document.querySelectorAll(".ai-tab").forEach((b) =>
     b.addEventListener("click", () => switchAiTab(b.dataset.aiTab)));
 
-  document.getElementById("btnAiSaveConfig").addEventListener("click", saveAiConfig);
+  document.getElementById("btnAiSaveConfig").addEventListener("click", () => saveAiConfig());
+  bindAiConfigAutosave();
   document.getElementById("btnFetchModels").addEventListener("click", fetchModels);
   bindAiResize();
   // 对话输入框自适应高度
@@ -1098,6 +1136,7 @@ export function bindAiPanel() {
       document.getElementById("aiModel").value = opt.dataset.model || "";
       document.getElementById("aiFormat").value = opt.dataset.format || "openai";
       updateFormatHint();
+      scheduleAiConfigSave();   // 预设带出的值也自动保存
     }
   });
   document.getElementById("aiFormat").addEventListener("change", updateFormatHint);
