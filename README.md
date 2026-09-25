@@ -68,7 +68,7 @@ python app.py
 | **生成简历** | 填目标岗位 / 年限 / 技能 / 经历要点 → 生成结构化简历内容 → 应用到新文档或替换当前 |
 | **修改建议** | 通读当前简历，从量化成果、动词强度、关键词匹配、ATS 友好度等维度给出带示例的建议 |
 | **JD 定制** | 粘贴 JD → 按关键词改写已有条目（不编造经历）→ 逐条应用；列出 JD 要求但未体现的关键词 |
-| **设置** | 24 个服务商预设（国内 11 / 海外 9 / 本地 4，含智谱 GLM、豆包、混元、千帆、MiniMax、硅基流动、零一万物、阶跃、xAI、OpenRouter、Groq、Together、Mistral、LM Studio、vLLM、One API 中转…）+ 一键测试连接 |
+| **设置** | 24 个服务商预设（**「获取模型」按钮自动拉取服务商可用模型列表**，点击选择，不用手输）（国内 11 / 海外 9 / 本地 4，含智谱 GLM、豆包、混元、千帆、MiniMax、硅基流动、零一万物、阶跃、xAI、OpenRouter、Groq、Together、Mistral、LM Studio、vLLM、One API 中转…）+ 一键测试连接 |
 | **JD 匹配** | 纯本地分析（不调用 AI、离线可用）：JD 关键词分类提取（硬技能/学历/职位/软技能）→ 权重比对 → 匹配率 + 缺失关键词 + 建议 |
 | **对话** | 对话式迭代修改（SSE 流式），回复可一键复制 |
 | **批量润色** | 区块级一键润色所有条目（Google XYZ 公式），改写前后对比后应用 |
@@ -206,7 +206,7 @@ $env:PYTHONPATH = 'E:\pythonProject\resume-builder'
 
 python app.py                        # 启动（http://localhost:5000）
 node scripts/check_js.mjs           # 前端语法检查（或 npm run check）
-python -m pytest tests/ -q           # 全部测试（227 用例，PDF 用例会真实起 Chromium）
+python -m pytest tests/ -q           # 全部测试（237 用例，PDF 用例会真实起 Chromium）
 python tests/debug_pdf_fonts.py      # 诊断：PDF 内嵌字体原始信息 + 渲染页面图
 ```
 

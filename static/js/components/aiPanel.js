@@ -942,6 +942,46 @@ function addChatActions(wrap, text) {
   wrap.appendChild(acts);
 }
 
+/* ---------------- 获取模型列表 ---------------- */
+
+async function fetchModels() {
+  const btn = document.getElementById("btnFetchModels");
+  // 先把当前填的配置保存，确保服务端拿到最新的 base_url/key/format
+  await saveAiConfig();
+  busy(btn, "获取中…");
+  const dd = document.getElementById("modelDropdown");
+  dd.textContent = "";
+  dd.hidden = false;
+  const loading = el("div", "model-dd-item model-dd-loading", "正在从服务商拉取模型列表…");
+  dd.appendChild(loading);
+  try {
+    const r = await api.getJson("/api/v1/llm/models");
+    dd.textContent = "";
+    if (!r.models?.length) {
+      dd.appendChild(el("div", "model-dd-empty", "服务商未返回任何模型"));
+      return;
+    }
+    for (const m of r.models) {
+      const item = el("button", "model-dd-item" + (m.id === document.getElementById("aiModel").value ? " active" : ""), m.name || m.id);
+      item.type = "button";
+      item.title = m.id;
+      item.addEventListener("click", () => {
+        document.getElementById("aiModel").value = m.id;
+        dd.hidden = true;
+        setStatus("aiConfigStatus", `已选择模型 ${m.id}，记得保存配置`, "");
+      });
+      dd.appendChild(item);
+    }
+    setStatus("aiConfigStatus", `共 ${r.models.length} 个可用模型，点击选择`, "ok");
+  } catch (e) {
+    dd.textContent = "";
+    dd.appendChild(el("div", "model-dd-empty", e.message));
+    setStatus("aiConfigStatus", e.message, "error");
+  } finally {
+    unbusy(btn);
+  }
+}
+
 /* ---------------- 绑定 ---------------- */
 
 export function bindAiPanel() {
@@ -954,6 +994,12 @@ export function bindAiPanel() {
     b.addEventListener("click", () => switchAiTab(b.dataset.aiTab)));
 
   document.getElementById("btnAiSaveConfig").addEventListener("click", saveAiConfig);
+  document.getElementById("btnFetchModels").addEventListener("click", fetchModels);
+  // 点击别处收起模型下拉
+  document.addEventListener("click", (e) => {
+    const dd = document.getElementById("modelDropdown");
+    if (dd && !e.target.closest(".model-field")) dd.hidden = true;
+  });
   document.getElementById("btnAiTest").addEventListener("click", testAiConnection);
   document.getElementById("aiPreset").addEventListener("change", (e) => {
     const opt = e.target.selectedOptions[0];

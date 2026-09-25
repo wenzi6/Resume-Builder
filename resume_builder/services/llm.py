@@ -396,6 +396,74 @@ def test_connection() -> dict:
         return {"ok": False, "message": str(e)}
 
 
+# ---------------------------------------------------------------- 模型列表
+
+
+def _http_get(url: str, headers: dict, timeout: int = 20) -> Any:
+    """GET JSON（测试可 monkeypatch 此函数）。"""
+    req = urllib.request.Request(url, headers=headers, method="GET")
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def list_models() -> dict[str, Any]:
+    """从服务商拉取可用模型列表（按配置的 format 走对应协议）。
+
+    返回 {models: [{id, name}], source: 端点 URL}
+    """
+    cfg = load_config()
+    if not (cfg["base_url"] and cfg["api_key"]):
+        raise ValueError("AI 尚未配置：请先填写 Base URL 和 API Key")
+    fmt = cfg.get("format") or "openai"
+    try:
+        if fmt == "anthropic":
+            data = _http_get(
+                f"{cfg['base_url']}/v1/models",
+                {"x-api-key": cfg["api_key"], "anthropic-version": ANTHROPIC_VERSION},
+            )
+            models = [
+                {"id": m.get("id", ""), "name": m.get("display_name") or m.get("id", "")}
+                for m in data.get("data", []) if isinstance(m, dict)
+            ]
+        elif fmt == "gemini":
+            data = _http_get(
+                f"{cfg['base_url']}/v1beta/models?key={cfg['api_key']}", {})
+            models = [
+                {"id": m.get("name", "").replace("models/", ""),
+                 "name": m.get("displayName") or m.get("name", "").replace("models/", "")}
+                for m in data.get("models", []) if isinstance(m, dict)
+            ]
+        elif fmt == "azure":
+            # Azure 的部署列表（模型部署名）
+            data = _http_get(
+                f"{cfg['base_url']}/openai/deployments?api-version={AZURE_API_VERSION}",
+                {"api-key": cfg["api_key"]},
+            )
+            models = [
+                {"id": m.get("id", ""), "name": m.get("id", "")}
+                for m in data.get("data", []) if isinstance(m, dict)
+            ]
+        else:
+            # OpenAI 兼容：/models
+            data = _http_get(
+                f"{cfg['base_url']}/models",
+                {"Authorization": f"Bearer {cfg['api_key']}"},
+            )
+            models = [
+                {"id": m.get("id", ""), "name": m.get("id", "")}
+                for m in data.get("data", []) if isinstance(m, dict)
+            ]
+    except Exception as e:  # noqa: BLE001
+        raise RuntimeError(_friendly_error(e)) from e
+
+    models = [m for m in models if m["id"]]
+    # 当前配置的模型排最前，其余按 id 排序
+    models.sort(key=lambda m: (m["id"] != cfg.get("model"), m["id"]))
+    if not models:
+        raise RuntimeError("服务商返回了空的模型列表")
+    return {"models": models}
+
+
 # ---------------------------------------------------------------- 输出解析
 
 

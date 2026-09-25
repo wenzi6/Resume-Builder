@@ -16,7 +16,7 @@
 |---|---|
 | PDF 中文字体 Type3 降级（原 P0 阻塞） | ✅ **已解决**：CFF OTF → glyf TTF + 剥离部首 cmap，全模板 Type0、中文可检索 |
 | 前端编辑器（`static/`） | ✅ **已从零完成**：12 个文件，全部交互经真实浏览器验证 |
-| 正式测试套件 | ✅ **pytest 227 用例全绿**（字体 / 分页 / ATS / 迁移 / PDF 导入 / 视觉回归 / 新功能 / 对照导入 / 原格式导出 / AI / 协议格式 / 流式 / 数据安全 / 页数一致性回归） |
+| 正式测试套件 | ✅ **pytest 237 用例全绿**（字体 / 分页 / ATS / 迁移 / PDF 导入 / 视觉回归 / 新功能 / 对照导入 / 原格式导出 / AI / 协议格式 / 流式 / 数据安全 / 页数一致性回归） |
 | 视觉走查 | ✅ 6 套模板 → PDF → PNG 逐套检查通过，且有基线像素回归测试 |
 | 优化轮（导出自检 / 自动适应 / 自有字体 / 版本历史 / HTML 导出 / undo / i18n / CI） | ✅ **已完成并经浏览器 10/10 走查**，详见 §3.0 |
 | README / git init / 清理 | ✅ 已完成（`.gitignore` 规范，含 CI 工作流） |
@@ -74,7 +74,7 @@
 | AI 流式 | `llm.chat_stream`（四种格式 SSE delta 解析）+ `/api/v1/llm/stream`（线程+队列） | 润色 / 生成逐段显示 |
 | 生产服务器 | waitress（多线程；FLASK_DEBUG=1 仍 dev） | — |
 | 前端检查 | `scripts/check_js.mjs` + package.json type=module + `// @ts-check` | CI 必过 |
-| ✨ AI 助手 | `services/llm.py`（urllib 零依赖，**四种协议格式适配器**：openai/azure/anthropic/gemini，`_http_post` 可 mock）+ `api/llm.py` | 顶栏「✨ AI」面板四页签 + 24 个服务商预设分组 + 格式选择器 + 字段级润色按钮 |
+| ✨ AI 助手（含获取模型列表 `GET /llm/models`） | `services/llm.py`（urllib 零依赖，**四种协议格式适配器**：openai/azure/anthropic/gemini，`_http_post` 可 mock）+ `api/llm.py` | 顶栏「✨ AI」面板四页签 + 24 个服务商预设分组 + 格式选择器 + 字段级润色按钮 |
 
 **修过的坑（代码已验证，勿重复排查）**：
 

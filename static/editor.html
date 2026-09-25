@@ -378,9 +378,13 @@
             <input class="field-input" type="password" id="aiApiKey" placeholder="sk-…" autocomplete="off">
           </div>
           <div class="field-row">
-            <div class="field-group">
-              <label class="field-label" for="aiModel">模型名称</label>
-              <input class="field-input" type="text" id="aiModel" placeholder="如 deepseek-chat">
+            <div class="field-group model-field">
+              <label class="field-label" for="aiModel">
+                模型名称
+                <button class="link-btn" type="button" id="btnFetchModels" title="从服务商拉取可用模型列表">获取模型</button>
+              </label>
+              <input class="field-input" type="text" id="aiModel" placeholder="如 deepseek-chat" autocomplete="off">
+              <div class="model-dropdown" id="modelDropdown" hidden></div>
             </div>
             <div class="field-group">
               <label class="field-label" for="aiTimeout">超时（秒）</label>

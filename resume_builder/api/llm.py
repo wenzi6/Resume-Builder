@@ -47,6 +47,18 @@ def test_conn():
     return jsonify(llm.test_connection())
 
 
+@bp.get("/models")
+def list_models():
+    """从服务商拉取可用模型列表（按配置的 format 走对应协议）。"""
+    try:
+        result = llm.list_models()
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:  # noqa: BLE001
+        return jsonify({"error": str(e)}), 502
+    return jsonify(result)
+
+
 @bp.post("/polish")
 def polish():
     body = _body()

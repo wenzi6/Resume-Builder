@@ -652,3 +652,107 @@ def test_api_chat_sanitizes_roles(client, monkeypatch):
 def test_api_chat_requires_messages(client):
     r = client.post("/api/v1/llm/chat", json={"messages": []})
     assert r.status_code == 400
+
+
+# ---------------- 模型列表 ----------------
+
+def _mock_models_get(monkeypatch, payload):
+    calls = []
+
+    def fake_get(url, headers, timeout=20):
+        calls.append({"url": url, "headers": headers})
+        return payload
+
+    monkeypatch.setattr(llm, "_http_get", fake_get)
+    return calls
+
+
+def test_list_models_openai(monkeypatch):
+    _configured()
+    calls = _mock_models_get(monkeypatch, {"data": [
+        {"id": "gpt-4o-mini"}, {"id": "gpt-4o"}, {"id": "deepseek-chat"}]})
+    r = llm.list_models()
+    ids = [m["id"] for m in r["models"]]
+    assert "gpt-4o-mini" in ids and "deepseek-chat" in ids
+    assert calls[0]["url"] == "https://api.example.com/models"
+    assert calls[0]["headers"]["Authorization"] == "Bearer sk-test"
+
+
+def test_list_models_current_first(monkeypatch):
+    """当前配置的模型排在最前。"""
+    _configured(model="gpt-4o")
+    _mock_models_get(monkeypatch, {"data": [{"id": "aaa"}, {"id": "gpt-4o"}, {"id": "zzz"}]})
+    r = llm.list_models()
+    assert r["models"][0]["id"] == "gpt-4o"
+
+
+def test_list_models_anthropic(monkeypatch):
+    _configured(format="anthropic")
+    calls = _mock_models_get(monkeypatch, {"data": [
+        {"id": "claude-sonnet-4-5", "display_name": "Claude Sonnet 4.5"}]})
+    r = llm.list_models()
+    assert r["models"][0]["name"] == "Claude Sonnet 4.5"
+    assert calls[0]["url"].endswith("/v1/models")
+    assert calls[0]["headers"]["x-api-key"] == "sk-test"
+    assert "anthropic-version" in calls[0]["headers"]
+
+
+def test_list_models_gemini(monkeypatch):
+    _configured(format="gemini")
+    calls = _mock_models_get(monkeypatch, {"models": [
+        {"name": "models/gemini-2.0-flash", "displayName": "Gemini 2.0 Flash"}]})
+    r = llm.list_models()
+    assert r["models"][0]["id"] == "gemini-2.0-flash"   # 去掉 models/ 前缀
+    assert r["models"][0]["name"] == "Gemini 2.0 Flash"
+    assert "key=sk-test" in calls[0]["url"]
+
+
+def test_list_models_azure(monkeypatch):
+    _configured(format="azure")
+    calls = _mock_models_get(monkeypatch, {"data": [{"id": "my-gpt4-deployment"}]})
+    r = llm.list_models()
+    assert r["models"][0]["id"] == "my-gpt4-deployment"
+    assert "/openai/deployments" in calls[0]["url"]
+    assert calls[0]["headers"]["api-key"] == "sk-test"
+
+
+def test_list_models_unconfigured():
+    import pytest
+
+    with pytest.raises(ValueError, match="尚未配置"):
+        llm.list_models()
+
+
+def test_list_models_empty(monkeypatch):
+    import pytest
+
+    _configured()
+    _mock_models_get(monkeypatch, {"data": []})
+    with pytest.raises(RuntimeError, match="空的模型列表"):
+        llm.list_models()
+
+
+def test_list_models_http_error(monkeypatch):
+    import urllib.error
+
+    _configured()
+
+    def boom(url, headers, timeout=20):
+        raise urllib.error.HTTPError(url, 401, "Unauthorized", {}, None)
+
+    monkeypatch.setattr(llm, "_http_get", boom)
+    with pytest.raises(RuntimeError, match="API Key 无效"):
+        llm.list_models()
+
+
+def test_api_list_models(client, monkeypatch):
+    _configured()
+    _mock_models_get(monkeypatch, {"data": [{"id": "m1"}, {"id": "m2"}]})
+    r = client.get("/api/v1/llm/models")
+    assert r.status_code == 200
+    assert [m["id"] for m in r.get_json()["models"]] == ["m1", "m2"]
+
+
+def test_api_list_models_unconfigured(client):
+    r = client.get("/api/v1/llm/models")
+    assert r.status_code == 400
