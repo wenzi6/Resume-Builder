@@ -16,7 +16,7 @@ from typing import Any
 from .. import config
 
 # 与 services/pdf_import.norm_text 保持一致的轻量归一（保证能找到 Span）
-_VARIANT_MAP = {
+_VARIANT_MAP_LEGACY = {
     "戶": "户", "戸": "户", "兒": "儿", "裏": "里", "喫": "吃", "傘": "伞",
     "畫": "画", "與": "与", "閱": "阅", "敵": "敌", "響": "响", "願": "愿",
     "顧": "顾", "體": "体", "實": "实", "寶": "宝", "術": "术", "網": "网",
@@ -24,6 +24,9 @@ _VARIANT_MAP = {
     "驗": "验", "戰": "战", "稱": "称", "種": "种", "節": "节", "風": "风",
     "讀": "读", "變": "变", "萬": "万", "衆": "众",
 }
+
+# 归一化映射与导入侧保持一致（含 CJK 部首补充块），避免旧值在原始 PDF 中定位不到
+from .pdf_import import VARIANT_MAP as _VARIANT_MAP
 
 # 字号缩放下限（pt），低于此值认为放不下，进 warnings
 MIN_FONT_SIZE = 5.0
@@ -94,6 +97,45 @@ def _page_spans(page) -> list[dict[str, Any]]:
     return spans
 
 
+def _span_y(span) -> float:
+    origin = span.get("origin")
+    if origin and len(origin) == 2:
+        return float(origin[1])
+    return float(span["bbox"][3])
+
+
+def _page_lines(page) -> list[dict[str, Any]]:
+    """把 Span 按基线聚成视觉行。
+
+    部分 PDF（尤其某些导出器生成的）把整行文本拆成逐字 Span，
+    公司名/要点被切成单字，整串匹配必然失败——必须按行重组后再匹配。
+    """
+    spans = _page_spans(page)
+    if not spans:
+        return []
+    rows: list[tuple[float, list]] = []
+    for s in sorted(spans, key=lambda s: (round(_span_y(s), 1), float(s["bbox"][0]))):
+        y = _span_y(s)
+        if rows and abs(y - rows[-1][0]) <= 3:
+            rows[-1][1].append(s)
+        else:
+            rows.append((y, [s]))
+    lines = []
+    for _, group in rows:
+        group.sort(key=lambda s: float(s["bbox"][0]))
+        lines.append({"spans": group, "text": "".join(s["text"] for s in group)})
+    return lines
+
+
+def _span_color(span) -> tuple[float, float, float]:
+    color = span.get("color", 0)
+    if isinstance(color, int):
+        return ((color >> 16) & 255) / 255, ((color >> 8) & 255) / 255, (color & 255) / 255
+    if isinstance(color, (list, tuple)) and len(color) >= 3:
+        return tuple(float(c) for c in color[:3])
+    return 0.0, 0.0, 0.0
+
+
 def _span_baseline(span) -> tuple[float, float]:
     origin = span.get("origin")
     if origin and len(origin) == 2:
@@ -151,57 +193,85 @@ def patch_pdf(source_rel: str, old_content: Any, new_content: Any) -> dict[str, 
             continue
         hit = False
         for page in doc:
-            spans = _page_spans(page)
-            for span in spans:
-                span_norm = _norm(span["text"])
-                if target not in span_norm:
+            for line in _page_lines(page):
+                if target not in _norm(line["text"]):
                     continue
-                # 在该 Span 文本中定位原始片段（精确优先，归一化兜底）
-                raw_old = old_val if old_val in span["text"] else _locate_raw(span["text"], old_val)
+                # 在整行文本中定位原始片段（精确优先，归一化兜底）
+                raw_old = old_val if old_val in line["text"] else _locate_raw(line["text"], old_val)
                 if raw_old is None:
                     continue
-                bbox = fitz.Rect(span["bbox"])
-                color = span.get("color", 0)
-                if isinstance(color, int):
-                    color = ((color >> 16) & 255) / 255, ((color >> 8) & 255) / 255, (color & 255) / 255
-                bold = "bold" in (span.get("font", "") or "").lower()
-                size = float(span.get("size") or 10.0)
-
-                if new_val is None:
-                    # 删除：只 redact
-                    page.add_redact_annot(bbox)
-                    page.apply_redactions(images=fitz.PDF_REDACT_IMAGE_NONE)
-                    hit = True
+                ok, warning = _replace_in_line(page, line, raw_old, new_val, path)
+                if warning:
+                    failed.append({"path": path, "reason": warning})
+                if ok:
                     applied.append({"path": path})
-                    continue
-
-                new_span_text = span["text"].replace(raw_old, new_val)
-                if new_span_text == span["text"] and _norm(new_span_text) == span_norm:
-                    new_span_text = new_val  # 整段替换
-                fontname = "china-s" if re.search(r"[\u4e00-\u9fff]", new_span_text) else "helv"
-                fit_size = _fit_size(new_span_text, fontname, size, bbox.width)
-                page.add_redact_annot(bbox)
-                page.apply_redactions(images=fitz.PDF_REDACT_IMAGE_NONE)
-                x, y = _span_baseline(span)
-                _insert_text(page, (x, y), new_span_text, fit_size, fontname, color, bold)
-                if fit_size < size * 0.92:
-                    (applied if fit_size >= MIN_FONT_SIZE else failed).append(
-                        {"path": path, "reason": f"字号缩至 {fit_size:.1f}pt 以适配原宽度"}
-                        if fit_size >= MIN_FONT_SIZE else
-                        {"path": path, "reason": "新内容过长，原版式放不下"})
-                    if fit_size < MIN_FONT_SIZE:
-                        hit = False
-                        break
-                hit = True
-                applied.append({"path": path})
+                    hit = True
+                break
             if hit:
                 break
-        if not hit:
+        if not hit and not any(f["path"] == path for f in failed):
             failed.append({"path": path, "reason": "未能在原始 PDF 中定位旧内容"})
 
     buf = doc.tobytes(deflate=True, garbage=3)
     doc.close()
     return {"data": buf, "applied": applied, "failed": failed, "unchanged": False}
+
+
+def _replace_in_line(page, line: dict, raw_old: str, new_val, path: str):
+    """在视觉行内替换 raw_old → new_val（跨 Span  redact + 原位重插）。
+
+    返回 (是否成功, 警告信息或 None)。
+    """
+    import fitz
+
+    spans = line["spans"]
+    joined = line["text"]
+    start = joined.find(raw_old)
+    if start < 0:
+        return False, None
+    end = start + len(raw_old)
+
+    # 每个 span 在整行文本中的字符区间
+    offsets: list[tuple[int, int]] = []
+    pos = 0
+    for s in spans:
+        offsets.append((pos, pos + len(s["text"])))
+        pos += len(s["text"])
+    affected = [i for i, (a, b) in enumerate(offsets) if a < end and b > start]
+    if not affected:
+        return False, None
+
+    first, last = spans[affected[0]], spans[affected[-1]]
+    seg_start, seg_end = offsets[affected[0]][0], offsets[affected[-1]][1]
+    segment = joined[seg_start:seg_end]
+    union = fitz.Rect(first["bbox"])
+    for i in affected[1:]:
+        union |= fitz.Rect(spans[i]["bbox"])
+    color = _span_color(first)
+    bold = "bold" in (first.get("font", "") or "").lower()
+    size = float(first.get("size") or 10.0)
+
+    if new_val is None:
+        # 删除：只 redact 受影响区间
+        page.add_redact_annot(union)
+        page.apply_redactions(images=fitz.PDF_REDACT_IMAGE_NONE)
+        return True, None
+
+    new_segment = segment.replace(raw_old, new_val)
+    # 整行就是旧值（如公司名独占一行）→ 整段替换
+    if _norm(joined) == _norm(raw_old):
+        new_segment = new_val
+    fontname = "china-s" if re.search(r"[\u4e00-\u9fff]", new_segment) else "helv"
+    fit_size = _fit_size(new_segment, fontname, size, union.width)
+    page.add_redact_annot(union)
+    page.apply_redactions(images=fitz.PDF_REDACT_IMAGE_NONE)
+    x, y = _span_baseline(first)
+    _insert_text(page, (x, y), new_segment, fit_size, fontname, color, bold)
+    if fit_size < size * 0.92:
+        if fit_size >= MIN_FONT_SIZE:
+            return True, f"字号缩至 {fit_size:.1f}pt 以适配原宽度"
+        return False, "新内容过长，原版式放不下"
+    return True, None
 
 
 def _locate_raw(span_text: str, old_val: str) -> str | None:

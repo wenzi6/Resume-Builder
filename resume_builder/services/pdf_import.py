@@ -18,11 +18,18 @@ VARIANT_MAP = {
     "統": "统", "錯": "错", "門": "门", "問": "问", "隊": "队", "際": "际",
     "驗": "验", "戰": "战", "稱": "称", "種": "种", "節": "节", "風": "风",
     "讀": "读", "變": "变", "萬": "万", "衆": "众",
+    # CJK 部首补充块（U+2E80–U+2EF3）：部分 PDF 字体 ToUnicode 损坏，
+    # 提取出部首码位而非汉字；NFKC 转不了这些，必须显式映射
+    "⻓": "长", "⻅": "见", "⻢": "马", "⻛": "风", "⻔": "门", "⻋": "车",
+    "⻙": "韦", "⻜": "飞", "⻝": "食", "⻘": "青", "⻥": "鱼", "⻦": "鸟",
+    "⻧": "卤", "⻨": "麦", "⻩": "黄", "⻬": "齐", "⻣": "骨", "⻤": "鬼",
+    "⻮": "齿", "⻶": "聿", "⻳": "龟", "⻷": "音", "⻺": "革", "⻻": "韋",
+    "⻼": "韭", "⻽": "音", "⻾": "頁", "⻿": "風", "⼁": "丨",
 }
 
 
 def norm_text(s: str) -> str:
-    """NFKC + 异体字映射，保证中文正则可靠匹配。"""
+    """NFKC + 异体字/部首映射，保证中文正则可靠匹配。"""
     if not isinstance(s, str):
         return s
     out = unicodedata.normalize("NFKC", s)
@@ -229,12 +236,22 @@ def build_document_from_pdf(extracted: dict) -> dict:
             if av := re.search(r"(一周内到岗|随时到岗|立即到岗|尽快到岗)", title_line):
                 resume["profile"]["availableDate"] = av.group(1)
 
-    # 4) 按区块关键词分块
-    raw_lines = [DECOR_RE.sub("", norm_text(l.strip())) for l in text.split("\n") if l.strip()]
+    # 4) 按区块关键词分块（同时保留每行的加粗标记，供「公司行/职位行」判别）
+    if sections:
+        raw = [
+            (DECOR_RE.sub("", norm_text((s.get("text") or "").strip())),
+             bool(s.get("bold") or s.get("is_title")))
+            for s in sections
+        ]
+    else:
+        raw = [(DECOR_RE.sub("", norm_text(l.strip())), False) for l in text.split("\n")]
+    raw = [(t, b) for t, b in raw if t.strip()]
     buckets: dict[str, list[str]] = {k: [] for k, _ in SECTION_KEYWORDS}
+    bucket_bold: dict[str, list[bool]] = {k: [] for k, _ in SECTION_KEYWORDS}
     buckets["other"] = []
+    bucket_bold["other"] = []
     current = None
-    for line in raw_lines:
+    for line, bold in raw:
         matched = None
         for key, titles in SECTION_KEYWORDS:
             if any(t in line for t in titles):
@@ -245,11 +262,13 @@ def build_document_from_pdf(extracted: dict) -> dict:
             continue
         if current:
             buckets[current].append(line)
+            bucket_bold[current].append(bold)
         else:
             buckets["other"].append(line)
+            bucket_bold["other"].append(bold)
 
-    resume["workExperiences"] = _parse_work(buckets["workExperiences"])
-    resume["projects"] = _parse_projects(buckets["projects"])
+    resume["workExperiences"] = _parse_work(buckets["workExperiences"], bucket_bold["workExperiences"])
+    resume["projects"] = _parse_projects(buckets["projects"], bucket_bold["projects"])
     resume["educations"] = _parse_educations(buckets["educations"])
 
     skill_sentences = [s for s in buckets["skills"] if len(s) >= 2]
@@ -298,20 +317,49 @@ def _split_company_title(rest: str) -> tuple[str, str]:
     return rest, ""
 
 
-def _parse_work(work_lines: list[str]) -> list[dict]:
+def _looks_like_job_title(s: str) -> bool:
+    """像职位名（工程师/专员/经理…）。机构后缀优先判公司，避免「××支持中心」误判。"""
+    s = (s or "").strip()
+    if not s:
+        return False
+    if ORG_SUFFIX_RE.match(s):
+        return False
+    return bool(JOB_TITLE_TAIL_RE.search(s))
+
+
+def _is_header_label(s: str) -> bool:
+    """「工作内容：」「项目介绍：」这类标签行（加粗但不是条目头）。"""
+    return bool(re.search(r"[：:]\s*$", s or ""))
+
+
+def _parse_work(work_lines: list[str], bolds: list[bool] | None = None) -> list[dict]:
+    """解析工作经历。
+
+    版式规律（绝大多数简历）：**加粗行 = 公司+日期**，紧随的**非加粗短行 = 职位**，
+    再往下是要点。早期版本把职位行误判成新公司，导致「职位跑到 company 字段」。
+    bolds 与 work_lines 等长，标记每行是否加粗/标题级。
+    """
     items, cur = [], None
-    for line in work_lines:
+    for idx, line in enumerate(work_lines):
+        bold = bolds[idx] if bolds and idx < len(bolds) else None
         # 先把行内所有日期片段剔掉，避免「公司 职位 日期」连行时干扰拆分
         date_stripped = DATE_RE.sub(" ", line)
         date_stripped = re.sub(
             r"[\s]*[\u2010-\u2015\-~–]+[\s]*(?:20\d{2}[-~.]\d{2,4}|至今|今)", " ", date_stripped)
         rest = date_stripped.strip()
+        title_like = _looks_like_job_title(rest)
         is_company_like = (
             re.fullmatch(r"[\u4e00-\u9fa5A-Za-z（）()&·]{2,16}", rest)
             and not VERB_START_RE.match(rest)
+            and not title_like          # 职位行绝不当公司
             and len(work_lines) > 3
         )
-        if DATE_RE.search(line) or is_company_like:
+        # 加粗的非标签、非职位短行：公司名独占一行且加粗的版式
+        is_bold_header = (
+            bold is True and rest and not title_like and not _is_header_label(rest)
+            and len(rest) <= 30 and not VERB_START_RE.match(rest)
+        )
+        if DATE_RE.search(line) or is_company_like or is_bold_header:
             if cur:
                 items.append(cur)
             cur = {"company": "", "jobTitle": "", "date": "", "descriptions": []}
@@ -328,10 +376,16 @@ def _parse_work(work_lines: list[str]) -> list[dict]:
         elif cur:
             clean = LABEL_PREFIX_RE.sub("", line).strip()
             if clean:
-                if (not cur["jobTitle"] and not DATE_RE.search(clean)
+                if (not cur["jobTitle"] and not cur["descriptions"]
+                        and not DATE_RE.search(clean)
                         and re.fullmatch(r"[\u4e00-\u9fa5A-Za-z（）()·]{2,12}", clean)
                         and not VERB_START_RE.match(clean)):
+                    # 头部区（公司/日期之后、要点之前）的短行 = 职位
                     cur["jobTitle"] = clean
+                elif title_like and cur["descriptions"]:
+                    # 上一条目已完整，这是新条目的职位行（公司缺失的版式）
+                    items.append(cur)
+                    cur = {"company": "", "jobTitle": clean, "date": "", "descriptions": []}
                 else:
                     cur["descriptions"].append(clean)
         else:
@@ -362,17 +416,26 @@ def _full_date(line: str) -> str:
     return ""
 
 
-def _parse_projects(proj_lines: list[str]) -> list[dict]:
+def _parse_projects(proj_lines: list[str], bolds: list[bool] | None = None) -> list[dict]:
+    """解析项目经验。规律同工作经历：加粗行 = 项目名+日期，非加粗短行 = 角色。"""
     items, cur = [], None
-    for line in proj_lines:
+    for idx, line in enumerate(proj_lines):
+        bold = bolds[idx] if bolds and idx < len(bolds) else None
         rest = _strip_dates(line)
+        title_like = _looks_like_job_title(rest)
         is_proj_name = (
             re.fullmatch(r"[\u4e00-\u9fa5A-Za-z0-9（）()&·\-]{2,30}", rest)
             and not ROLE_WORDS.match(rest)
+            and not title_like           # 职位行不当项目名
             and not re.match(r"^(项目介绍|项目内容|岗位职责|工作内容|职责|成果|1\.|2\.|3\.)", rest)
             and not VERB_START_RE.match(rest)
         )
-        if DATE_RE.search(line) or is_proj_name:
+        is_bold_header = (
+            bold is True and rest and not title_like and not _is_header_label(rest)
+            and len(rest) <= 30 and not VERB_START_RE.match(rest)
+            and not re.match(r"^(项目介绍|项目内容|岗位职责|工作内容|职责|成果)", rest)
+        )
+        if DATE_RE.search(line) or is_proj_name or is_bold_header:
             if cur:
                 items.append(cur)
             cur = {"project": "", "jobTitle": "", "date": _full_date(line), "descriptions": []}
@@ -386,7 +449,11 @@ def _parse_projects(proj_lines: list[str]) -> list[dict]:
         elif cur:
             clean = LABEL_PREFIX_RE.sub("", line).strip()
             if clean:
-                if not cur["jobTitle"] and not DATE_RE.search(clean) and ROLE_WORDS.match(clean):
+                if (not cur["jobTitle"] and not cur["descriptions"]
+                        and not DATE_RE.search(clean)
+                        and (ROLE_WORDS.match(clean) or title_like
+                             or re.fullmatch(r"[\u4e00-\u9fa5A-Za-z（）()·]{2,10}", clean))
+                        and not VERB_START_RE.match(clean)):
                     cur["jobTitle"] = clean
                 else:
                     cur["descriptions"].append(clean)

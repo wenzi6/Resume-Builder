@@ -137,3 +137,64 @@ def test_patch_diff_unit():
     changes = {c["path"]: c for c in diff_content(old, new)}
     assert changes["profile.name"]["new"] == "李四"
     assert changes["workExperiences.0.descriptions.1"]["new"] is None  # 删除
+
+
+# ---------------- 逐字 Span PDF 的补丁定位回归 ----------------
+
+def _per_char_pdf(lines: list[str]) -> bytes:
+    """构造「逐字独立 Span」的 PDF（模拟问题导出器），验证按行重组匹配。"""
+    import pymupdf
+
+    doc = pymupdf.open()
+    page = doc.new_page(width=595, height=842)
+    y = 60
+    for text in lines:
+        x = 60
+        for ch in text:
+            page.insert_text((x, y), ch, fontsize=11, fontname="china-s")
+            x += 12
+        y += 22
+    buf = doc.tobytes()
+    doc.close()
+    return buf
+
+
+def test_patch_pdf_locates_text_in_per_char_spans(tmp_path):
+    """公司名被拆成逐字 Span 时，原格式补丁仍要能定位并替换。"""
+    from resume_builder.services import pdf_patch
+
+    pdf = _per_char_pdf([
+        "2021-08 ~ 2023-06 四川准达信息技术有限公司",
+        "安全运维工程师",
+        "负责对客户服务器集群的部署和监控",
+    ])
+    src = tmp_path / "src.pdf"
+    src.write_bytes(pdf)
+
+    old = {"workExperiences": [{"company": "四川准达信息技术有限公司",
+                                "jobTitle": "安全运维工程师",
+                                "descriptions": ["负责对客户服务器集群的部署和监控"]}]}
+    new = {"workExperiences": [{"company": "字节跳动",
+                                "jobTitle": "高级安全运维工程师",
+                                "descriptions": ["负责对客户服务器集群的部署和监控"]}]}
+    r = pdf_patch.patch_pdf(str(src), old, new)
+    paths = [a["path"] for a in r["applied"]]
+    assert "workExperiences.0.company" in paths, r["failed"]
+    assert "workExperiences.0.jobTitle" in paths, r["failed"]
+    text = _text(r["data"])
+    assert "字节跳动" in text
+    assert "四川准达" not in text
+    assert "2021-08 ~ 2023-06" in text          # 同行其他内容不能被误删
+
+
+def test_page_lines_groups_spans_by_baseline():
+    from resume_builder.services import pdf_patch
+
+    pdf = _per_char_pdf(["第一行内容", "第二行内容"])
+    import pymupdf
+
+    with pymupdf.open(stream=pdf, filetype="pdf") as doc:
+        lines = pdf_patch._page_lines(doc[0])
+    assert len(lines) == 2, [l["text"] for l in lines]
+    assert lines[0]["text"] == "第一行内容"
+    assert lines[1]["text"] == "第二行内容"
