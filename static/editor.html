@@ -348,7 +348,7 @@
 
         <!-- 对话 -->
         <section class="ai-pane" id="aiChat" hidden>
-          <p class="ai-hint">对话式迭代：让 AI 按你的要求持续修改简历内容（如「把第一条 bullet 改短」「补充量化数据」）。回复可直接替换到表单。</p>
+          <p class="ai-hint">对话式迭代：让 AI 按你的要求持续修改简历内容（如「把第一条 bullet 改短」「补充量化数据」）。AI 会生成修改方案，确认后一键应用（Ctrl+Z 可撤销）。</p>
           <div class="chat-log" id="chatLog"></div>
           <div class="chat-input-row">
             <textarea class="field-textarea chat-textarea" id="chatInput" rows="1" placeholder="输入修改要求，Enter 发送 · Shift+Enter 换行"></textarea>
@@ -371,7 +371,7 @@
               <input class="field-input" type="text" id="aiConfigName" placeholder="给这套配置起个名字" maxlength="40">
             </div>
           </div>
-          <p class="ai-hint" data-i18n="ai.setHint">支持任何 OpenAI 兼容服务（DeepSeek / Kimi / 通义千问 / OpenAI / Ollama 等）。Key 只保存在本机 data/llm_config.json，不会上传到除服务商以外的任何地方。</p>
+          <p class="ai-hint" data-i18n="ai.setHint">支持任何 OpenAI 兼容服务（DeepSeek / Kimi / 通义千问 / OpenAI / Ollama 等）。Key 只保存在本机 data/llm_configs.json，不会上传到除服务商以外的任何地方。</p>
           <div class="field-row">
             <div class="field-group">
               <label class="field-label" for="aiPreset">快速选择服务商</label>
