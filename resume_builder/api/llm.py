@@ -118,7 +118,11 @@ def list_models():
 def polish():
     body = _body()
     try:
-        result = llm.polish_text(str(body.get("text") or ""), str(body.get("context") or ""))
+        result = llm.polish_text(
+            str(body.get("text") or ""),
+            str(body.get("context") or ""),
+            str(body.get("instruction") or ""),
+        )
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
     except Exception as e:  # noqa: BLE001
@@ -169,9 +173,12 @@ def chat_ep():
         def worker():
             try:
                 parts = []
-                for chunk in llm.chat_stream(clean, temperature=0.7, max_tokens=2000):
-                    parts.append(chunk)
-                    q.put(("chunk", chunk))
+                for ev in llm.chat_stream_rich(clean, temperature=0.7, max_tokens=4000):
+                    if ev["type"] == "reasoning":
+                        q.put(("reasoning", ev["text"]))
+                    else:
+                        parts.append(ev["text"])
+                        q.put(("chunk", ev["text"]))
                 q.put(("done", "".join(parts)))
             except Exception as e:  # noqa: BLE001
                 q.put(("error", str(e)))
@@ -181,6 +188,8 @@ def chat_ep():
             kind, payload = q.get()
             if kind == "chunk":
                 yield f"data: {json.dumps({'chunk': payload}, ensure_ascii=False)}\n\n"
+            elif kind == "reasoning":
+                yield f"data: {json.dumps({'reasoning': payload}, ensure_ascii=False)}\n\n"
             elif kind == "done":
                 yield f"data: {json.dumps({'done': True, 'text': payload}, ensure_ascii=False)}\n\n"
                 return
@@ -265,7 +274,10 @@ def llm_stream():
             try:
                 if capability == "polish":
                     text = str(body.get("text") or "")
-                    result = llm.polish_text(text, str(body.get("context") or ""), on_chunk)
+                    result = llm.polish_text(
+                        text, str(body.get("context") or ""),
+                        str(body.get("instruction") or ""), on_chunk,
+                    )
                 else:
                     brief = body.get("brief")
                     if not isinstance(brief, dict):

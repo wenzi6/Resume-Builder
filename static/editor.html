@@ -348,7 +348,7 @@
 
         <!-- 对话 -->
         <section class="ai-pane" id="aiChat" hidden>
-          <p class="ai-hint">对话式迭代：让 AI 按你的要求持续修改简历内容（如「把第一条 bullet 改短」「补充量化数据」）。AI 会生成修改方案，确认后一键应用（Ctrl+Z 可撤销）。</p>
+          <p class="ai-hint">指挥 AI 改简历：说「把所有工作经历改成 IT 招聘方向」「把公司名改成字节跳动」…AI 按字段清单生成方案，逐条/全部应用，改完自动定位到字段（Ctrl+Z 可撤销）。</p>
           <div class="chat-log" id="chatLog"></div>
           <div class="chat-input-row">
             <textarea class="field-textarea chat-textarea" id="chatInput" rows="1" placeholder="输入修改要求，Enter 发送 · Shift+Enter 换行"></textarea>
@@ -477,6 +477,11 @@
       <div class="field-group">
         <label class="field-label" for="polishResult">AI 改写（可手动编辑）</label>
         <textarea class="field-textarea" id="polishResult" rows="5" spellcheck="false"></textarea>
+      </div>
+      <div class="field-group">
+        <label class="field-label" for="polishInstruction">我的修改要求（可选，留空则按 XYZ 公式自动润色）</label>
+        <input class="field-input" type="text" id="polishInstruction" maxlength="300"
+               placeholder="如：突出量化结果 / 改成 IT 招聘方向 / 压到一行">
       </div>
       <p class="ai-hint" data-i18n="ai.polishHint">改写遵循 Google XYZ 公式（做了什么 + 可量化结果 + 怎么做），不会编造你没有的数据。</p>
     </div>

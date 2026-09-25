@@ -1079,6 +1079,34 @@ input[type="range"]::-moz-range-thumb {
 .cfg-manager-row { display: flex; gap: 6px; align-items: center; }
 .cfg-select { flex: 1; min-width: 0; }
 
+/* ============ 对话思考过程 ============ */
+.chat-think {
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+  margin-bottom: 6px;
+  overflow: hidden;
+  font-size: 12px;
+}
+.chat-think-head {
+  padding: 4px 8px;
+  color: var(--text-2);
+  cursor: pointer;
+  user-select: none;
+  background: var(--panel-2);
+}
+.chat-think-head:hover { color: var(--accent); }
+.chat-think-body {
+  display: none;
+  padding: 6px 8px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text-2);
+  max-height: 180px;
+  overflow-y: auto;
+  line-height: 1.5;
+}
+.chat-think.open .chat-think-body { display: block; }
+
 /* ============ 对话修改方案卡片 ============ */
 .chat-plan {
   border: 1px solid var(--accent);
@@ -1087,13 +1115,25 @@ input[type="range"]::-moz-range-thumb {
 }
 .chat-plan.applied { opacity: 0.75; }
 .chat-plan .plan-row { margin: 8px 0; }
+.chat-plan .plan-row.invalid { opacity: 0.55; }
+.chat-plan .plan-row.invalid .plan-loc { color: var(--danger, #dc2626); text-decoration: line-through; }
+.chat-plan .plan-row.applied .plan-loc::after { content: " ✓"; color: var(--ok, #16a34a); }
 .chat-plan .plan-loc {
   font-size: 12px;
   font-weight: 600;
   color: var(--accent);
   margin-bottom: 4px;
 }
+.chat-plan .plan-row-acts { margin-top: 4px; display: flex; gap: 6px; }
 .chat-plan .chat-acts { margin-top: 10px; display: flex; gap: 6px; }
+
+/* 字段定位高亮（AI 改完后滚动到此并闪烁） */
+@keyframes fieldFlash {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(22, 163, 74, 0); background-color: transparent; }
+  25% { box-shadow: 0 0 0 3px rgba(22, 163, 74, .45); background-color: rgba(22, 163, 74, .12); }
+  75% { box-shadow: 0 0 0 3px rgba(22, 163, 74, .45); background-color: rgba(22, 163, 74, .12); }
+}
+.field-flash { animation: fieldFlash 1.8s ease-out 1; border-radius: var(--radius-sm); }
 
 /* ============ 模型下拉 ============ */
 .model-field { position: relative; }

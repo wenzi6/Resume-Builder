@@ -646,13 +646,13 @@ def test_api_chat_sanitizes_roles(client, monkeypatch):
     """非法角色被归一为 user，超长历史截断。"""
     _configured()
     seen = {}
-    orig = llm.chat_stream
+    orig = llm.chat_stream_rich
 
     def spy(messages, *a, **kw):
         seen["messages"] = messages
         return orig(messages, *a, **kw)
 
-    monkeypatch.setattr(llm, "chat_stream", spy)
+    monkeypatch.setattr(llm, "chat_stream_rich", spy)
     _mock_stream(monkeypatch, ['data: {"choices":[{"delta":{"content":"ok"}}]}', "data: [DONE]"])
     msgs = [{"role": "system", "content": "x"}, {"role": "user", "content": "y"}] + [
         {"role": "user", "content": f"m{i}"} for i in range(30)
@@ -919,3 +919,100 @@ def test_api_configs_never_leak_key(client):
     assert r.status_code == 200
     body = r.get_data(as_text=True)
     assert "sk-secret-123" not in body
+
+
+# ---------------- 思考内容（reasoning_content） ----------------
+
+def test_chat_stream_rich_reasoning_then_content(monkeypatch):
+    """DeepSeek-R1 风格：先 reasoning_content，后 content。"""
+    _configured()
+    _mock_stream(monkeypatch, [
+        'data: {"choices":[{"delta":{"reasoning_content":"让我想想"}}]}',
+        'data: {"choices":[{"delta":{"reasoning_content":"，先看结构"}}]}',
+        'data: {"choices":[{"delta":{"content":"好的"}}]}',
+        'data: {"choices":[{"delta":{"content":"，改好了"}}]}',
+        "data: [DONE]",
+    ])
+    events = list(llm.chat_stream_rich([{"role": "user", "content": "hi"}]))
+    assert events[0] == {"type": "reasoning", "text": "让我想想"}
+    assert events[1] == {"type": "reasoning", "text": "，先看结构"}
+    assert events[2] == {"type": "content", "text": "好的"}
+    # chat_stream 只出正文（向后兼容）
+    _mock_stream(monkeypatch, [
+        'data: {"choices":[{"delta":{"reasoning_content":"思考"}}]}',
+        'data: {"choices":[{"delta":{"content":"正文"}}]}',
+        "data: [DONE]",
+    ])
+    assert "".join(llm.chat_stream([{"role": "user", "content": "hi"}])) == "正文"
+
+
+def test_delta_openai_rich_variants():
+    assert llm._delta_openai_rich({"choices": [{"delta": {"reasoning_content": "r", "content": "c"}}]}) == ("c", "r")
+    assert llm._delta_openai_rich({"choices": [{"delta": {"reasoning": "r2"}}]}) == ("", "r2")   # 部分商用 reasoning 字段
+    assert llm._delta_openai_rich({"choices": [{"delta": {}}]}) == ("", "")
+    assert llm._delta_openai_rich({}) == ("", "")
+
+
+def test_delta_anthropic_rich_thinking(monkeypatch):
+    _configured(format="anthropic")
+    _mock_stream(monkeypatch, [
+        'data: {"type":"content_block_delta","delta":{"type":"thinking_delta","thinking":"思考中"}}',
+        'data: {"type":"content_block_delta","delta":{"text":"答案"}}',
+        "data: [DONE]",
+    ])
+    events = list(llm.chat_stream_rich([{"role": "user", "content": "hi"}]))
+    assert {"type": "reasoning", "text": "思考中"} in events
+    assert {"type": "content", "text": "答案"} in events
+
+
+def test_chat_endpoint_emits_reasoning_sse(client, monkeypatch):
+    """/llm/chat 的 SSE 流中应包含 reasoning 事件。"""
+    monkeypatch.setattr(llm, "chat_stream_rich", lambda *a, **k: iter([
+        {"type": "reasoning", "text": "思考"},
+        {"type": "content", "text": "回答"},
+    ]))
+    r = client.post("/api/v1/llm/chat", json={"messages": [{"role": "user", "content": "hi"}]})
+    assert r.status_code == 200
+    body = r.get_data(as_text=True)
+    assert '"reasoning": "思考"' in body
+    assert '"chunk": "回答"' in body
+    assert '"done": true' in body
+
+
+def test_polish_with_instruction(monkeypatch):
+    """润色支持用户自定义指令（优先于默认 XYZ 公式）。"""
+    _configured()
+    seen = {}
+
+    def fake_run(messages, temp, max_tokens, on_chunk=None):
+        seen["system"] = messages[0]["content"]
+        seen["user"] = messages[1]["content"]
+        return "改写后"
+
+    monkeypatch.setattr(llm, "_run", fake_run)
+    r = llm.polish_text("负责官网开发", "工作经历", instruction="改成 IT 招聘方向")
+    assert r["result"] == "改写后"
+    assert "改成 IT 招聘方向" in seen["user"]
+    assert "优先满足用户要求" in seen["system"]
+
+
+def test_polish_without_instruction_unchanged(monkeypatch):
+    """不传指令时仍走默认 XYZ 公式提示词。"""
+    _configured()
+    seen = {}
+
+    def fake_run(messages, temp, max_tokens, on_chunk=None):
+        seen["system"] = messages[0]["content"]
+        return "润色后"
+
+    monkeypatch.setattr(llm, "_run", fake_run)
+    llm.polish_text("负责官网开发")
+    assert "XYZ" in seen["system"]
+
+
+def test_polish_endpoint_accepts_instruction(client, monkeypatch):
+    monkeypatch.setattr(llm, "_run", lambda *a, **k: "ok")
+    r = client.post("/api/v1/llm/polish", json={
+        "text": "负责官网开发", "context": "工作经历", "instruction": "突出量化结果"})
+    assert r.status_code == 200
+    assert r.get_json()["result"] == "ok"

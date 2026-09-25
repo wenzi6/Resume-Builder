@@ -480,13 +480,59 @@ def _open_stream(req, timeout: int):
     return urllib.request.urlopen(req, timeout=timeout)
 
 
-def chat_stream(messages: list[dict], temperature: float = 0.7, max_tokens: int = 2000):
-    """流式调用，逐段 yield 文本增量（SSE）。失败时抛 RuntimeError。"""
+def _delta_openai_rich(data):
+    """返回 (正文, 思考内容)。DeepSeek-R1 / QwQ / GLM-Z1 等思考模型用 reasoning_content。"""
+    try:
+        d = data["choices"][0]["delta"]
+        if not isinstance(d, dict):
+            return "", ""
+        content = d.get("content") or ""
+        reasoning = d.get("reasoning_content") or d.get("reasoning") or ""
+        return content, reasoning
+    except (KeyError, IndexError, TypeError):
+        return "", ""
+
+
+def _delta_anthropic_rich(data):
+    """Anthropic 思考块：content_block_delta 的 thinking_delta。"""
+    if data.get("type") == "content_block_delta":
+        d = data.get("delta") or {}
+        if d.get("type") == "thinking_delta" or "thinking" in d:
+            return "", d.get("thinking") or ""
+        return d.get("text") or "", ""
+    return "", ""
+
+
+def _delta_gemini_rich(data):
+    """Gemini thought 部件（thought: true）视为思考内容。"""
+    try:
+        parts = data["candidates"][0]["content"]["parts"]
+        content, reasoning = [], []
+        for p in parts:
+            if not isinstance(p, dict):
+                continue
+            (reasoning if p.get("thought") else content).append(p.get("text") or "")
+        return "".join(content), "".join(reasoning)
+    except (KeyError, IndexError, TypeError):
+        return "", ""
+
+
+_RICH_DELTA = {
+    "openai": _delta_openai_rich,
+    "azure": _delta_openai_rich,
+    "anthropic": _delta_anthropic_rich,
+    "gemini": _delta_gemini_rich,
+}
+
+
+def _stream_events(messages: list[dict], temperature: float, max_tokens: int):
+    """底层流式：逐条 yield (\"content\"|\"reasoning\", 文本)。"""
     cfg = load_config()
     if not (cfg["base_url"] and cfg["api_key"] and cfg["model"]):
         raise ValueError("AI 尚未配置：请先在「AI 设置」中填写 Base URL / API Key / 模型")
     fmt = cfg.get("format") or "openai"
-    build, _, delta_of = _FORMATS.get(fmt, _FORMATS["openai"])
+    build, _, _ = _FORMATS.get(fmt, _FORMATS["openai"])
+    rich_delta = _RICH_DELTA.get(fmt, _delta_openai_rich)
     url, headers, payload = build(cfg, messages, temperature, max_tokens, stream=True)
     req = urllib.request.Request(
         url,
@@ -510,14 +556,29 @@ def chat_stream(messages: list[dict], temperature: float = 0.7, max_tokens: int 
                     continue
                 if isinstance(obj, dict) and obj.get("error"):
                     raise RuntimeError(_friendly_error(Exception(str(obj["error"]))))
-                delta = delta_of(obj)
-                if delta:
+                content, reasoning = rich_delta(obj)
+                if reasoning:
+                    yield "reasoning", reasoning
+                if content:
                     got_any = True
-                    yield delta
+                    yield "content", content
     except Exception as e:  # noqa: BLE001
         raise RuntimeError(_friendly_error(e)) from e
     if not got_any:
         raise RuntimeError(f"AI 未返回任何内容（{fmt}）")
+
+
+def chat_stream(messages: list[dict], temperature: float = 0.7, max_tokens: int = 2000):
+    """流式调用，逐段 yield 正文增量（SSE）。思考内容不在此列（见 chat_stream_rich）。"""
+    for kind, text in _stream_events(messages, temperature, max_tokens):
+        if kind == "content":
+            yield text
+
+
+def chat_stream_rich(messages: list[dict], temperature: float = 0.7, max_tokens: int = 2000):
+    """流式调用，yield {\"type\": \"content\"|\"reasoning\", \"text\": ...}。"""
+    for kind, text in _stream_events(messages, temperature, max_tokens):
+        yield {"type": kind, "text": text}
 
 
 def test_connection() -> dict:
@@ -671,27 +732,32 @@ def polish_batch(items: list[str], context: str = "") -> dict:
     return {"results": results, "original": cleaned}
 
 
-def polish_text(text: str, context: str = "", on_chunk=None) -> dict:
-    """按 Google XYZ 公式润色单条内容。"""
+def polish_text(text: str, context: str = "", instruction: str = "", on_chunk=None) -> dict:
+    """润色单条内容；instruction 为用户自定义要求（优先于默认公式）。"""
     text = (text or "").strip()
     if not text:
         raise ValueError("请输入要润色的内容")
     if len(text) > 800:
         raise ValueError("单条内容过长（上限 800 字），请分段润色")
     ctx = f"\n所在上下文：{context}" if context else ""
-    messages = [
-        {
-            "role": "system",
-            "content": (
-                "你是资深简历顾问。按 Google XYZ 公式改写用户给的简历条目："
-                "「 Accomplished X as measured by Y by doing Z 」——即「做了什么 + 可量化结果 + 怎么做」。"
-                "铁律：不得编造用户没提供的数据；原文没有数值时用「显著提升」「有效降低」等表述，"
-                "或提示用户补充数值。每条以强动词开头，不超过 60 字，中文输出（英文原文则英文输出）。"
-                "只输出改写后的 1-3 条，每行一条，不要编号、不要解释。"
-            ),
-        },
-        {"role": "user", "content": f"请润色以下简历内容{ctx}：\n{text}"},
-    ]
+    if instruction.strip():
+        system = (
+            "你是资深简历顾问。用户对这条简历内容有明确的修改要求，必须优先满足用户要求，"
+            "其次遵循 Google XYZ 公式（做了什么 + 可量化结果 + 怎么做）让表述更有力。"
+            "铁律：不得编造用户没提供的数据与事实；只改写表述，不添加不存在经历。"
+            "只输出改写后的 1-3 条，每行一条，不要编号、不要解释。"
+        )
+        user = f"请按我的要求修改{ctx}。\n我的要求：{instruction.strip()[:300]}\n原文：\n{text}"
+    else:
+        system = (
+            "你是资深简历顾问。按 Google XYZ 公式改写用户给的简历条目："
+            "「 Accomplished X as measured by Y by doing Z 」——即「做了什么 + 可量化结果 + 怎么做」。"
+            "铁律：不得编造用户没提供的数据；原文没有数值时用「显著提升」「有效降低」等表述，"
+            "或提示用户补充数值。每条以强动词开头，不超过 60 字，中文输出（英文原文则英文输出）。"
+            "只输出改写后的 1-3 条，每行一条，不要编号、不要解释。"
+        )
+        user = f"请润色以下简历内容{ctx}：\n{text}"
+    messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
     result = _run(messages, 0.6, 600, on_chunk)
     return {"original": text, "result": result}
 

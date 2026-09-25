@@ -485,6 +485,7 @@ async function readSseStream(resp, handlers) {
           continue;
         }
         if (msg.chunk) handlers.onChunk?.(msg.chunk);
+        else if (msg.reasoning) handlers.onReasoning?.(msg.reasoning);
         else if (msg.done) { handlers.onDone?.(msg.result ?? msg.text); return; }
         else if (msg.error) { handlers.onError?.(msg.error); return; }
       }
@@ -785,6 +786,7 @@ export function openPolish(path, value, context = "") {
   document.getElementById("polishOriginal").textContent = value;
   const ta = document.getElementById("polishResult");
   ta.value = "";
+  document.getElementById("polishInstruction").value = "";
   document.getElementById("polishOverlay").hidden = false;
   requestPolish();
 }
@@ -807,7 +809,12 @@ async function requestPolish() {
       toast("请先配置 AI 服务", "error");
       return;
     }
-    await streamLlm("polish", { text: polishTarget.original, context: polishTarget.context }, {
+    const instruction = document.getElementById("polishInstruction").value.trim();
+    await streamLlm("polish", {
+      text: polishTarget.original,
+      context: polishTarget.context,
+      instruction,
+    }, {
       onChunk: (chunk) => {
         ta.value += chunk;   // 流式逐字显示
       },
@@ -1072,6 +1079,7 @@ function renderMatch(r) {
 
 let chatMessages = [];
 let chatStreaming = false;
+let chatValidPaths = null;   // 当前文档真实字段路径集合（方案校验用）
 
 async function sendChat() {
   if (!ensureConfigured()) return;
@@ -1080,50 +1088,91 @@ async function sendChat() {
   if (!text || chatStreaming) return;
 
   if (!chatMessages.length) {
-    // 首条消息：把当前简历 + 修改协议交给 AI
+    // 首条消息：简历数据 + 真实字段清单 + 修改协议
+    const index = buildFieldIndex();
     chatMessages.push({
       role: "user",
       content:
         "这是我的简历数据（JSON）：\n" + JSON.stringify(store.doc.content) +
+        "\n\n" + fieldIndexPrompt(index) +
         "\n\n【修改协议】后续我让你修改简历时，你必须严格按这个 JSON 格式回复（可包在 ```json 代码块里）：\n" +
-        '{"reply":"给用户的简短说明","edits":[{"path":"content.workExperiences.0.descriptions.0","old":"原文","new":"修改后的文本"}]}\n' +
-        "路径规则：从 content 起按简历结构寻址，如 content.profile.name（姓名）、content.profile.title（职位）、" +
-        "content.workExperiences.0.descriptions.1（第1段工作经历的第2条要点）、content.projects.0.descriptions.0、" +
-        "content.educations.0.descriptions.0、content.skills.descriptions.0（第1条技能）、" +
-        "content.selfEvaluation.descriptions.0（自我评价第1条）。" +
-        "只输出需要改的条目、不要输出整份简历；纯问答时正常自然语言回复、不要带 edits。",
+        '{"reply":"给用户的简短说明","edits":[{"path":"上面清单里的路径","old":"该路径的当前值","new":"修改后的文本"}]}\n' +
+        "铁律：\n" +
+        "1. path 只能从上面清单原样复制，禁止自创或猜测路径；\n" +
+        "2. 我说「所有 / 每条 / 全部」时，必须枚举清单中每一条匹配的字段，一条都不能漏；\n" +
+        "3. old 必须填清单中该路径的当前值（用于核对）；\n" +
+        "4. 只输出需要改的字段，不要输出整份简历；纯问答时正常自然语言回复、不要带 edits。",
     });
     // 该上下文消息不展示
   }
+  // 文档可能在对话中变化，每次发送前刷新字段清单供校验
+  chatValidPaths = new Set(buildFieldIndex().map((e) => e.path));
   chatMessages.push({ role: "user", content: text });
   input.value = "";
   chatStreaming = true;
   renderChatLog();
   const bubble = appendChatBubble("assistant", "");
+  const wrap = bubble.parentElement;
   let acc = "";
+  // 思考内容块（思考模型实时显示，正文开始时自动折叠）
+  let thinkBox = null;
+  let thinkLen = 0;
+  const ensureThinkBox = () => {
+    if (thinkBox) return thinkBox;
+    thinkBox = el("div", "chat-think open");
+    const head = el("div", "chat-think-head", "💭 思考中…");
+    const body = el("div", "chat-think-body");
+    thinkBox.appendChild(head);
+    thinkBox.appendChild(body);
+    wrap.insertBefore(thinkBox, bubble);
+    head.addEventListener("click", () => thinkBox.classList.toggle("open"));
+    return thinkBox;
+  };
   const looksLikePlan = () => {
     const t = acc.trimStart();
     return t.startsWith("{") || t.startsWith("```");
   };
 
   await streamChat(chatMessages, {
+    onReasoning: (t) => {
+      thinkLen += t.length;
+      const box = ensureThinkBox();
+      box.querySelector(".chat-think-body").textContent += t;
+      box.classList.add("open");
+      wrap.scrollIntoView({ block: "end" });
+    },
     onChunk: (c) => {
       acc += c;
-      // 流式过程中如果是方案 JSON，先显示占位，避免刷一屏原始 JSON
-      bubble.textContent = looksLikePlan() ? "⏳ 正在生成修改方案…" : acc;
-      bubble.parentElement.scrollIntoView({ block: "end" });
+      // 正文开始 → 折叠思考块
+      if (thinkBox) {
+        thinkBox.classList.remove("open");
+        thinkBox.querySelector(".chat-think-head").textContent =
+          `💭 思考过程（${thinkLen} 字，点击展开）`;
+      }
+      // 流式过程中如果是方案 JSON，显示实时进度，避免刷一屏原始 JSON
+      bubble.textContent = looksLikePlan()
+        ? `⏳ 正在生成修改方案…（已生成 ${acc.length} 字）`
+        : acc;
+      wrap.scrollIntoView({ block: "end" });
     },
     onDone: (r) => {
       const full = r.text || acc;
       chatMessages.push({ role: "assistant", content: full });
       chatStreaming = false;
-      const plan = parseEditPlan(full);
+      const plan = parseEditPlan(full, chatValidPaths);
       if (plan && plan.edits.length) {
         bubble.textContent = plan.reply || "修改方案如下：";
         renderPlanCard(bubble.parentElement, plan.edits);
       } else {
         bubble.textContent = full;
         addChatActions(bubble.parentElement, full);
+        // 方案疑似被截断（长文本又不是合法 JSON）给出可操作提示
+        if (full.length > 400 && (full.includes("\"edits\"") || full.trimStart().startsWith("{"))) {
+          const tip = el("div", "chat-acts");
+          tip.style.color = "var(--warn, #d97706)";
+          tip.textContent = "⚠️ 方案可能被模型截断，未能解析。请把修改拆成两三次提问。";
+          bubble.parentElement.appendChild(tip);
+        }
       }
     },
     onError: (msg) => {
@@ -1140,10 +1189,10 @@ function renderChatLog() {
   const visible = chatMessages.slice(1);
   if (!visible.length) {
     const hint = el("div", "chat-empty-hint");
-    hint.textContent = "直接说你要改什么，AI 会生成修改方案，确认后一键应用：" + String.fromCharCode(10) +
-      "· 把第一条工作经历改短，突出量化结果" + String.fromCharCode(10) +
-      "· 补充项目经历里的技术细节" + String.fromCharCode(10) +
-      "· 专业技能按「后端」方向重写" + String.fromCharCode(10) +
+    hint.textContent = "直接说你要改什么，AI 会生成修改方案，可逐条/全部应用，改完自动定位高亮：" + String.fromCharCode(10) +
+      "· 把所有工作经历改成 IT 招聘方向" + String.fromCharCode(10) +
+      "· 把第一段经历的公司名改成「字节跳动」" + String.fromCharCode(10) +
+      "· 每条 bullet 都补充量化结果" + String.fromCharCode(10) +
       "· 自我评价压到两行以内";
     hint.style.whiteSpace = "pre-line";
     log.appendChild(hint);
@@ -1182,8 +1231,8 @@ function addChatActions(wrap, text) {
   wrap.appendChild(acts);
 }
 
-/** 从回复中解析修改方案 JSON（容忍 ```json 围栏和前后杂音）。 */
-function parseEditPlan(text) {
+/** 从回复中解析修改方案 JSON（容忍 ```json 围栏和前后杂音）。validPaths 为当前文档真实路径集合。 */
+function parseEditPlan(text, validPaths = null) {
   const t = String(text || "").trim();
   if (!t) return null;
   let raw = "";
@@ -1201,11 +1250,71 @@ function parseEditPlan(text) {
     if (!obj || !Array.isArray(obj.edits)) return null;
     const edits = obj.edits
       .filter((e) => e && typeof e.path === "string" && typeof e.new === "string")
-      .map((e) => ({ path: e.path, new: e.new, old: typeof e.old === "string" ? e.old : "" }));
+      .map((e) => ({
+        path: e.path,
+        new: e.new,
+        old: typeof e.old === "string" ? e.old : "",
+        valid: validPaths ? validPaths.has(e.path) : true,
+      }));
     return edits.length ? { reply: String(obj.reply || "").trim(), edits } : null;
   } catch {
     return null;
   }
+}
+
+/**
+ * 枚举当前文档全部可修改字段（路径 + 当前值）。
+ * AI 只能从这些路径里选，根治「路径瞎编」和「漏改条目」。
+ */
+function buildFieldIndex() {
+  const doc = store.doc;
+  const entries = [];
+  const walk = (obj, path) => {
+    if (typeof obj === "string") {
+      entries.push({ path, value: obj });
+      return;
+    }
+    if (Array.isArray(obj)) {
+      obj.forEach((v, i) => walk(v, `${path}.${i}`));
+      return;
+    }
+    if (obj && typeof obj === "object") {
+      for (const [k, v] of Object.entries(obj)) walk(v, `${path}.${k}`);
+    }
+  };
+  if (doc?.content) walk(doc.content, "content");
+  return entries;
+}
+
+/** 字段清单的 prompt 文本（含区块条目数统计，确保「所有/每条」被完整枚举）。 */
+function fieldIndexPrompt(entries) {
+  const capped = entries.slice(0, 240);
+  const lines = capped.map((e) => {
+    const v = e.value.replace(/\s+/g, " ").slice(0, 50);
+    return `- ${e.path}【${formatEditPath(e.path)}】= ${v}`;
+  });
+  // 统计每个列表区块的条目数
+  const counts = {};
+  for (const e of entries) {
+    const m = e.path.match(/^content\.([^.]+)\.(\d+)\./);
+    if (m) counts[m[1]] = Math.max(counts[m[1]] || 0, Number(m[2]) + 1);
+  }
+  const summary = Object.entries(counts)
+    .map(([k, n]) => `${formatEditPath("content." + k)}共 ${n} 条`).join("；");
+  let text = `【可修改字段清单】共 ${entries.length} 个字段，路径必须原样复制，禁止自创路径：\n` +
+    lines.join("\n");
+  if (summary) text += `\n${summary}`;
+  if (entries.length > capped.length) text += `\n（其余 ${entries.length - capped.length} 个字段从略）`;
+  return text;
+}
+
+/** 路径是否可写（存在，或可向数组末尾追加）。 */
+function pathWritable(path) {
+  if (readPath(path) != null) return true;
+  const keys = String(path).split(".");
+  const parent = readPath(keys.slice(0, -1).join("."));
+  const last = keys[keys.length - 1];
+  return Array.isArray(parent) && /^\d+$/.test(last) && Number(last) === parent.length;
 }
 
 /** 把 content.xxx.0.descriptions.1 之类的路径翻译成人话。 */
@@ -1231,18 +1340,21 @@ function formatEditPath(path) {
   return label;
 }
 
-/** 渲染修改方案卡片（差异预览 + 应用全部）。 */
+/** 渲染修改方案卡片（差异预览 + 逐条/全部应用 + 定位）。 */
 function renderPlanCard(wrap, edits) {
+  const valid = edits.filter((e) => e.valid);
   const card = el("div", "ai-card chat-plan");
   const head = el("div", "ai-card-head");
   const title = el("span", "ai-card-title");
-  title.textContent = `修改方案（${edits.length} 处）`;
+  title.textContent = valid.length
+    ? `修改方案（${valid.length} 处可应用${edits.length > valid.length ? `，${edits.length - valid.length} 处路径无效已跳过` : ""}）`
+    : "修改方案（无有效路径）";
   head.appendChild(title);
   card.appendChild(head);
   for (const e of edits) {
-    const row = el("div", "plan-row");
+    const row = el("div", "plan-row" + (e.valid ? "" : " invalid"));
     const loc = el("div", "plan-loc");
-    loc.textContent = formatEditPath(e.path);
+    loc.textContent = formatEditPath(e.path) + (e.valid ? "" : " · 路径不存在");
     row.appendChild(loc);
     const diff = el("div", "ai-diff");
     const oldD = el("div", "old");
@@ -1253,34 +1365,69 @@ function renderPlanCard(wrap, edits) {
     diff.appendChild(oldD);
     diff.appendChild(newD);
     row.appendChild(diff);
+    const acts = el("div", "plan-row-acts");
+    if (e.valid) {
+      const one = el("button", "btn btn-sm", "应用这条");
+      one.type = "button";
+      one.addEventListener("click", () => {
+        if (!applyToPath(e.path, e.new, true)) {
+          toast("应用失败：字段不存在", "error");
+          return;
+        }
+        one.disabled = true;
+        one.textContent = "已应用";
+        row.classList.add("applied");
+        locateField(e.path);
+        toastSuccess("已应用 1 处（Ctrl+Z 可撤销）");
+      });
+      acts.appendChild(one);
+    }
+    const locate = el("button", "btn btn-sm btn-ghost", "定位");
+    locate.type = "button";
+    locate.addEventListener("click", () => locateField(e.path));
+    acts.appendChild(locate);
+    row.appendChild(acts);
     card.appendChild(row);
   }
-  const acts = el("div", "chat-acts");
-  const applyBtn = el("button", "btn btn-sm btn-primary", "应用全部修改");
-  applyBtn.type = "button";
-  applyBtn.addEventListener("click", () => {
-    const r = applyChatEdits(edits);
-    if (r.ok) {
-      applyBtn.disabled = true;
-      applyBtn.textContent = "已应用";
-      card.classList.add("applied");
-      // 让后续对话知道已应用，保持上下文一致
-      chatMessages.push({ role: "user", content: "[系统] 以上修改已全部应用到简历。" });
-    }
-    if (r.failed.length) {
-      toast(`${r.failed.length} 处应用失败：${r.failed.map(formatEditPath).join("、")}`, "error");
-    }
-    if (r.ok) toastSuccess(`已应用 ${r.ok} 处修改（Ctrl+Z 可撤销）`);
-  });
-  const discard = el("button", "btn btn-sm btn-ghost", "忽略");
-  discard.type = "button";
-  discard.addEventListener("click", () => {
-    card.remove();
-  });
-  acts.appendChild(applyBtn);
-  acts.appendChild(discard);
-  card.appendChild(acts);
+  if (valid.length) {
+    const acts = el("div", "chat-acts");
+    const applyBtn = el("button", "btn btn-sm btn-primary", `应用全部修改（${valid.length} 处）`);
+    applyBtn.type = "button";
+    applyBtn.addEventListener("click", () => {
+      const r = applyChatEdits(valid);
+      if (r.ok) {
+        applyBtn.disabled = true;
+        applyBtn.textContent = "已应用";
+        card.classList.add("applied");
+        // 让后续对话知道已应用，保持上下文一致
+        chatMessages.push({ role: "user", content: "[系统] 以上修改已全部应用到简历。" });
+        locateField(valid[0].path);
+      }
+      if (r.failed.length) {
+        toast(`${r.failed.length} 处应用失败：${r.failed.map(formatEditPath).join("、")}`, "error");
+      }
+      if (r.ok) toastSuccess(`已应用 ${r.ok} 处修改（Ctrl+Z 可撤销）`);
+    });
+    const discard = el("button", "btn btn-sm btn-ghost", "忽略");
+    discard.type = "button";
+    discard.addEventListener("click", () => card.remove());
+    acts.appendChild(applyBtn);
+    acts.appendChild(discard);
+    card.appendChild(acts);
+  }
   wrap.appendChild(card);
+}
+
+/** 滚动到表单中对应字段并高亮闪烁（改后立即可见）。 */
+function locateField(path) {
+  const input = document.querySelector(`[data-path="${CSS.escape(path)}"]`);
+  if (!input) {
+    toast("该字段不在当前表单中（可能被隐藏）", "error");
+    return;
+  }
+  input.scrollIntoView({ behavior: "smooth", block: "center" });
+  input.classList.add("field-flash");
+  setTimeout(() => input.classList.remove("field-flash"), 1800);
 }
 
 /** 读取路径当前值（不存在返回 null）。 */
