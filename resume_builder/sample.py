@@ -80,10 +80,10 @@ _SAMPLE_GENERAL = {
 
 _SAMPLE_TECH = {
     "profile": {
-        "name": "宋文鑫",
+        "name": "李四",
         "title": "网络安全工程师",
-        "email": "2802043817@qq.com",
-        "phone": "18227424364",
+        "email": "lisi@example.com",
+        "phone": "13900139000",
         "location": "",
         "age": "25",
         "gender": "男",
