@@ -287,3 +287,34 @@ def test_patch_pdf_detects_bold_from_type3(tmp_path):
     with pymupdf.open(stream=r["data"], filetype="pdf") as doc:
         fonts = {f[3] for p in doc for f in p.get_fonts(full=True)}
     assert any("notosanssc" in f.lower().replace(" ", "") for f in fonts), fonts
+
+
+def test_patch_pdf_keeps_readable_size_for_long_text(tmp_path):
+    """替换文本明显变长时，字号不得被压到小字（保底 88%/7.5pt，空白区自然延展）。"""
+    from resume_builder.services import pdf_patch
+
+    pdf = _per_char_pdf([
+        "负责客户服务器集群的部署和监控",
+    ])
+    src = tmp_path / "long.pdf"
+    src.write_bytes(pdf)
+
+    long_text = ("负责客户服务器集群的部署监控与容量规划，覆盖负载均衡、自动扩缩容与故障演练，"
+                 "保障核心业务系统全年 99.95% 可用性，并推动监控体系标准化落地。")
+    old = {"workExperiences": [{"descriptions": ["负责客户服务器集群的部署和监控"]}]}
+    new = {"workExperiences": [{"descriptions": [long_text]}]}
+    r = pdf_patch.patch_pdf(str(src), old, new)
+    assert any(a["path"] == "workExperiences.0.descriptions.0" for a in r["applied"]), r["failed"]
+
+    import pymupdf
+
+    with pymupdf.open(stream=r["data"], filetype="pdf") as doc:
+        sizes = [round(s["size"], 1)
+                 for b in doc[0].get_text("dict")["blocks"] if b.get("type") == 0
+                 for l in b["lines"] for s in l["spans"] if "99.95%" in s["text"]]
+        all_sizes = [round(s["size"], 1)
+                     for b in doc[0].get_text("dict")["blocks"] if b.get("type") == 0
+                     for l in b["lines"] for s in l["spans"] if s["text"].strip()]
+    assert sizes, "长文本未写入"
+    assert sizes[0] >= 7.4, f"字号被压到 {sizes[0]}pt：{all_sizes}"
+    assert not any(s < 6.5 for s in all_sizes), all_sizes

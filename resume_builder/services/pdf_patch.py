@@ -254,20 +254,6 @@ def _load_font(bold: bool):
     return _FONT_CACHE[key]
 
 
-def _fit_size(text: str, size: float, avail_w: float, font=None) -> float:
-    if avail_w <= 0:
-        return size
-    if font is not None:
-        w = font.text_length(text, fontsize=size)
-    else:
-        import fitz
-
-        w = fitz.get_text_length(text, fontname="helv", fontsize=size)
-    if w <= avail_w or w <= 0:
-        return size
-    return max(MIN_FONT_SIZE, size * avail_w / w)
-
-
 def _insert_text(page, point, text, size, color, bold: bool, font=None) -> None:
     """原位插入文本。优先用内置 Noto Sans SC（保持与原文黑体一致的观感）；
     字体缺失时退回 PyMuPDF 内置字体。"""
@@ -345,6 +331,49 @@ def _is_pure_cjk(s: str) -> bool:
     return bool(s) and all("\u4e00" <= c <= "\u9fff" or c in "（）()·、" for c in s)
 
 
+def _right_clearance(page, line: dict, span_idx: int, from_x: float) -> tuple[float, bool]:
+    """插入点右侧的可用宽度，以及右侧是否还有别的文字。
+
+    返回 (可用宽度, 右侧是否有内容)。有内容时必须让路（可继续缩小）；
+    没内容时是空白区，保持可读字号自然延展比缩成小字更好。
+    """
+    import fitz
+
+    right = float(page.rect.width) - 30.0  # 页面右边距近似
+    blocked = False
+    for i, s in enumerate(line["spans"]):
+        if i <= span_idx:
+            continue
+        x0 = float(s["bbox"][0])
+        if x0 > from_x + 1.0:
+            right = min(right, x0 - 4.0)
+            blocked = True
+            break
+    return max(24.0, right - from_x), blocked
+
+
+def _fit_size_readable(text: str, size: float, avail_w: float, font, floor: float) -> tuple[float, bool]:
+    """在 [floor, size] 间找能容纳 text 的最大字号。
+
+    返回 (字号, 是否仍超出可用宽度)。宁可略超宽也不无限缩小——
+    缩到 5pt 这种小字比略微出界更影响观感。
+    """
+    if avail_w <= 0:
+        return size, False
+    if font is None:
+        import fitz
+
+        w = fitz.get_text_length(text, fontname="helv", fontsize=size)
+        if w <= avail_w:
+            return size, False
+        return max(MIN_FONT_SIZE, size * avail_w / w), True
+    fs = size
+    while fs > floor and font.text_length(text, fontsize=fs) > avail_w:
+        fs = round(fs - 0.2, 2)
+    overflow = font.text_length(text, fontsize=fs) > avail_w
+    return fs, overflow
+
+
 def _replace_in_line(page, line: dict, raw_old: str, new_val, path: str):
     """在视觉行内替换 raw_old → new_val（跨 Span  redact + 原位重插）。
 
@@ -406,14 +435,20 @@ def _replace_in_line(page, line: dict, raw_old: str, new_val, path: str):
             redact_rect = fitz.Rect(sb.x0 + sb.width * frac0, sb.y0,
                                     sb.x0 + sb.width * frac1, sb.y1)
             insert_x = redact_rect.x0
-    fit_size = _fit_size(new_segment, size, redact_rect.width, font)
+    # 右侧空间：有别的文字就要让路（可继续缩小），纯空白区则保持可读字号
+    avail, blocked = _right_clearance(page, line, affected[-1], insert_x)
+    floor = MIN_FONT_SIZE if blocked else max(7.5, size * 0.88)
+    fit_size, overflow = _fit_size_readable(new_segment, size, avail, font, floor)
     page.add_redact_annot(redact_rect)
     page.apply_redactions(images=fitz.PDF_REDACT_IMAGE_NONE)
     _insert_text(page, (insert_x, y), new_segment, fit_size, color, bold, font)
+    if overflow:
+        if blocked:
+            return False, "新内容过长，原版式放不下"
+        return True, (f"新内容比原文长，已保持 {fit_size:.1f}pt 可读字号"
+                      f"（原 {size:.1f}pt），右侧为空白区故自然延展")
     if fit_size < size * 0.92:
-        if fit_size >= MIN_FONT_SIZE:
-            return True, f"字号缩至 {fit_size:.1f}pt 以适配原宽度"
-        return False, "新内容过长，原版式放不下"
+        return True, f"字号缩至 {fit_size:.1f}pt 以适配原宽度"
     return True, None
 
 
