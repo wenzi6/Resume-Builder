@@ -1077,6 +1077,45 @@ function renderMatch(r) {
 
 /* ---------------- 对话式迭代 ---------------- */
 
+/**
+ * 文档切换后重置 AI 面板状态：对话上下文、润色/批量目标、各功能页结果。
+ * 不重置 aiCfg（模型配置是全局的，与文档无关）。
+ */
+function resetAiDocState() {
+  chatMessages = [];
+  chatValidPaths = null;
+  chatStreaming = false;
+  polishTarget = null;
+  batchCtx = null;
+  for (const id of ["polishOverlay", "batchOverlay"]) {
+    const ov = document.getElementById(id);
+    if (ov) ov.hidden = true;
+  }
+  for (const id of ["aiGenResult", "aiSuggestResult", "aiJdResult", "aiMatchResult"]) {
+    const box = document.getElementById(id);
+    if (box) {
+      box.textContent = "";
+      box.hidden = true;
+    }
+  }
+  for (const id of ["aiGenStatus", "aiSuggestStatus", "aiJdStatus", "aiMatchStatus", "aiConfigStatus"]) {
+    setStatus(id, "", "");
+  }
+  const log = document.getElementById("chatLog");
+  if (log) {
+    log.textContent = "";
+    const hint = el("div", "chat-empty-hint");
+    hint.textContent = "已切换到新文档，对话已重置。直接说你要改什么，AI 会生成修改方案，可逐条/全部应用，改完自动定位高亮：" +
+      String.fromCharCode(10) +
+      "· 把所有工作经历改成 IT 招聘方向" + String.fromCharCode(10) +
+      "· 把第一段经历的公司名改成「字节跳动」" + String.fromCharCode(10) +
+      "· 每条 bullet 都补充量化结果" + String.fromCharCode(10) +
+      "· 自我评价压到两行以内";
+    hint.style.whiteSpace = "pre-line";
+    log.appendChild(hint);
+  }
+}
+
 let chatMessages = [];
 let chatStreaming = false;
 let chatValidPaths = null;   // 当前文档真实字段路径集合（方案校验用）
@@ -1495,6 +1534,9 @@ async function fetchModels() {
 /* ---------------- 绑定 ---------------- */
 
 export function bindAiPanel() {
+  // 文档切换/导入新文档：清空所有绑定旧文档的 AI 状态
+  // （否则对话上下文还冻着上一个简历的 JSON，AI 会继续「分析上一个简历」）
+  store.on("doc-swapped", () => resetAiDocState());
   document.getElementById("btnAi").addEventListener("click", () => openAiPanel("generate"));
   document.getElementById("btnCloseAi").addEventListener("click", closeAiPanel);
   document.getElementById("aiOverlay").addEventListener("click", (e) => {
