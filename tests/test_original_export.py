@@ -142,7 +142,10 @@ def test_patch_diff_unit():
 # ---------------- 逐字 Span PDF 的补丁定位回归 ----------------
 
 def _per_char_pdf(lines: list[str]) -> bytes:
-    """构造「逐字独立 Span」的 PDF（模拟问题导出器），验证按行重组匹配。"""
+    """构造「逐字独立 Span」的 PDF（模拟问题导出器），验证按行重组匹配。
+
+    每个字用不同字号，避免 PyMuPDF 把同字号的相邻字合并成一个 Span。
+    """
     import pymupdf
 
     doc = pymupdf.open()
@@ -150,8 +153,8 @@ def _per_char_pdf(lines: list[str]) -> bytes:
     y = 60
     for text in lines:
         x = 60
-        for ch in text:
-            page.insert_text((x, y), ch, fontsize=11, fontname="china-s")
+        for i, ch in enumerate(text):
+            page.insert_text((x, y), ch, fontsize=11 + i * 0.01, fontname="china-s")
             x += 12
         y += 22
     buf = doc.tobytes()
@@ -198,3 +201,89 @@ def test_page_lines_groups_spans_by_baseline():
     assert len(lines) == 2, [l["text"] for l in lines]
     assert lines[0]["text"] == "第一行内容"
     assert lines[1]["text"] == "第二行内容"
+
+
+def test_patch_pdf_uses_matching_cjk_font(tmp_path):
+    """原格式补丁必须用与原文观感一致的内置黑体（不能是 PyMuPDF 内置 china-s）。"""
+    from resume_builder.services import pdf_patch
+
+    pdf = _per_char_pdf([
+        "2021-08 ~ 2023-06 四川准达信息技术有限公司",
+        "负责对客户服务器集群的部署和监控",
+    ])
+    src = tmp_path / "src.pdf"
+    src.write_bytes(pdf)
+
+    old = {"workExperiences": [{"company": "四川准达信息技术有限公司",
+                                "descriptions": ["负责对客户服务器集群的部署和监控"]}]}
+    new = {"workExperiences": [{"company": "字节跳动有限公司",
+                                "descriptions": ["负责对客户服务器集群的部署和监控"]}]}
+    r = pdf_patch.patch_pdf(str(src), old, new)
+    assert any(a["path"] == "workExperiences.0.company" for a in r["applied"]), r["failed"]
+
+    import pymupdf
+
+    with pymupdf.open(stream=r["data"], filetype="pdf") as doc:
+        fonts = {f[3] for p in doc for f in p.get_fonts(full=True)}
+        text = "".join(p.get_text() for p in doc)
+    assert "字节跳动有限公司" in text
+
+    def _is_noto(name: str) -> bool:
+        n = name.lower().replace(" ", "")
+        return "notosanssc" in n
+
+    # 插入的中文必须走内置 Noto Sans SC（Type0 嵌入）——合成 PDF 自带的 china-s 不算
+    assert any(_is_noto(f) for f in fonts), fonts
+
+    # 精确验证：新文字所在的 Span 用的是 Noto Sans SC
+    with pymupdf.open(stream=r["data"], filetype="pdf") as doc:
+        new_span_fonts = set()
+        for b in doc[0].get_text("dict")["blocks"]:
+            if b.get("type") != 0:
+                continue
+            for l in b["lines"]:
+                for s in l["spans"]:
+                    if "字节跳动" in s["text"]:
+                        new_span_fonts.add(s["font"])
+    assert new_span_fonts and all(_is_noto(f) for f in new_span_fonts), new_span_fonts
+
+
+def test_patch_pdf_detects_bold_from_type3(tmp_path):
+    """Type3 逐字字体无法从字体名判粗细——用墨迹密度判定（公司名加粗→Bold 字体）。"""
+    from resume_builder.services import pdf_patch
+
+    # 用自家管线生成带加粗公司名的 PDF
+    from resume_builder.engine import pdf as pdf_engine
+    from resume_builder.sample import sample_general
+
+    data = pdf_engine.render_pdf_bytes(sample_general())
+    src = tmp_path / "bold.pdf"
+    src.write_bytes(data)
+    extracted = __import__("resume_builder.services.pdf_import", fromlist=["x"])
+    from resume_builder.services.pdf_import import build_document_from_pdf, extract_pdf
+
+    content = build_document_from_pdf(extract_pdf(open(src, "rb")))
+    work = content.get("workExperiences") or []
+    if not work:
+        import pytest
+
+        pytest.skip("样本未解析出工作经历")
+    import copy
+
+    source = copy.deepcopy(content)
+    company = work[0].get("company") or ""
+    if not company:
+        import pytest
+
+        pytest.skip("样本首段经历无公司名")
+    changed = copy.deepcopy(content)
+    changed["workExperiences"][0]["company"] = "测试公司名称"
+    r = pdf_patch.patch_pdf(str(src), source, changed)
+    applied = [a["path"] for a in r["applied"]]
+    assert any(p.endswith("company") for p in applied), (applied, r["failed"])
+
+    import pymupdf
+
+    with pymupdf.open(stream=r["data"], filetype="pdf") as doc:
+        fonts = {f[3] for p in doc for f in p.get_fonts(full=True)}
+    assert any("notosanssc" in f.lower().replace(" ", "") for f in fonts), fonts

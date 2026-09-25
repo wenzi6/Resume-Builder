@@ -28,6 +28,9 @@ _VARIANT_MAP_LEGACY = {
 # 归一化映射与导入侧保持一致（含 CJK 部首补充块），避免旧值在原始 PDF 中定位不到
 from .pdf_import import VARIANT_MAP as _VARIANT_MAP
 
+# 内置字体缓存（bold / regular 各一份，避免每次插字都加载 10MB TTF）
+_FONT_CACHE: dict[str, Any] = {}
+
 # 字号缩放下限（pt），低于此值认为放不下，进 warnings
 MIN_FONT_SIZE = 5.0
 
@@ -144,18 +147,138 @@ def _span_baseline(span) -> tuple[float, float]:
     return float(bbox[0]), float(bbox[3]) - float(bbox[3] - bbox[1]) * 0.22
 
 
-def _fit_size(text: str, fontname: str, size: float, avail_w: float) -> float:
+_INK_CACHE: dict[tuple, float] = {}
+
+
+def _ink_ratio(pix) -> float:
+    """墨迹占比：先裁剪到墨迹外框，再算框内黑像素比例（跨字体可比）。"""
+    w, h, samples = pix.width, pix.height, pix.samples
+    if w <= 0 or h <= 0 or len(samples) < w * h:
+        return 0.0
+    minx, miny, maxx, maxy, dark = w, h, -1, -1, 0
+    for y in range(h):
+        base = y * w
+        for x in range(w):
+            if samples[base + x] < 128:
+                dark += 1
+                if x < minx:
+                    minx = x
+                if x > maxx:
+                    maxx = x
+                if y < miny:
+                    miny = y
+                if y > maxy:
+                    maxy = y
+    if maxx < minx or maxy < miny:
+        return 0.0
+    box = (maxx - minx + 1) * (maxy - miny + 1)
+    return dark / box
+
+
+def _span_ink_ratio(page, span) -> float:
+    """渲染原 span 区域，返回墨迹密度（粗体显著高于常规）。"""
     import fitz
 
+    clip = fitz.Rect(span["bbox"])
+    if clip.is_empty or clip.width <= 1 or clip.height <= 1:
+        return 0.0
+    try:
+        pix = page.get_pixmap(matrix=fitz.Matrix(4, 4), clip=clip, colorspace=fitz.csGRAY)
+    except Exception:  # noqa: BLE001 渲染失败不阻塞补丁
+        return 0.0
+    return _ink_ratio(pix)
+
+
+def _glyph_ink_ratio(font, ch: str, size: float) -> float:
+    """渲染内置字体的单个字符，返回墨迹密度（作粗细基准，按字符缓存）。"""
+    import fitz
+
+    key = (id(font), ch, round(size, 1))
+    if key in _INK_CACHE:
+        return _INK_CACHE[key]
+    try:
+        w = max(8, int(font.text_length(ch, fontsize=size)) + 8)
+        h = int(size * 2.2) + 8
+        d = fitz.open()
+        pg = d.new_page(width=w, height=h)
+        tw = fitz.TextWriter(pg.rect)
+        tw.append((4, size + 3), ch, font=font, fontsize=size)
+        tw.write_text(pg, color=(0, 0, 0))
+        pix = pg.get_pixmap(matrix=fitz.Matrix(4, 4), colorspace=fitz.csGRAY)
+        ratio = _ink_ratio(pix)
+        d.close()
+    except Exception:  # noqa: BLE001
+        ratio = 0.0
+    _INK_CACHE[key] = ratio
+    return ratio
+
+
+def _detect_bold(page, span) -> bool:
+    """判断原 span 是否粗体。
+
+    常规 PDF 看字体名/flags；Type3（每字一字体）两者都不可信，
+    改用墨迹密度与原文字形对比内置 Regular 同字符——更重即粗体。
+    """
+    font_name = (span.get("font") or "").lower()
+    if "bold" in font_name or "heavy" in font_name or "black" in font_name:
+        return True
+    if span.get("flags", 0) & 16:
+        return True
+    if "type3" in font_name or not font_name:
+        orig = _span_ink_ratio(page, span)
+        if orig <= 0.02:
+            return False
+        ch = next((c for c in span.get("text", "") if not c.isspace()), "")
+        if not ch:
+            return False
+        ref_font = _load_font(False)
+        if ref_font is None:
+            return False
+        ref = _glyph_ink_ratio(ref_font, ch, float(span.get("size") or 10.0))
+        return ref > 0 and orig > ref * 1.2
+    return False
+
+
+def _load_font(bold: bool):
+    """加载内置 Noto Sans SC（与模板排版同一套字体，视觉最接近原 PDF 的黑体）。"""
+    import fitz
+
+    key = "bold" if bold else "regular"
+    if key not in _FONT_CACHE:
+        name = "NotoSansSC-Bold.ttf" if bold else "NotoSansSC-Regular.ttf"
+        path = config.FONTS_DIR / name
+        if not path.is_file():
+            _FONT_CACHE[key] = None
+        else:
+            _FONT_CACHE[key] = fitz.Font(fontfile=str(path))
+    return _FONT_CACHE[key]
+
+
+def _fit_size(text: str, size: float, avail_w: float, font=None) -> float:
     if avail_w <= 0:
         return size
-    w = fitz.get_text_length(text, fontname=fontname, fontsize=size)
+    if font is not None:
+        w = font.text_length(text, fontsize=size)
+    else:
+        import fitz
+
+        w = fitz.get_text_length(text, fontname="helv", fontsize=size)
     if w <= avail_w or w <= 0:
         return size
     return max(MIN_FONT_SIZE, size * avail_w / w)
 
 
-def _insert_text(page, point, text, size, fontname, color, bold: bool) -> None:
+def _insert_text(page, point, text, size, color, bold: bool, font=None) -> None:
+    """原位插入文本。优先用内置 Noto Sans SC（保持与原文黑体一致的观感）；
+    字体缺失时退回 PyMuPDF 内置字体。"""
+    import fitz
+
+    if font is not None:
+        tw = fitz.TextWriter(page.rect)
+        tw.append(point, text, font=font, fontsize=size)
+        tw.write_text(page, color=color)
+        return
+    fontname = "china-s" if re.search(r"[\u4e00-\u9fff]", text) else "helv"
     page.insert_text(point, text, fontsize=size, fontname=fontname, color=color)
     if bold:
         page.insert_text((point[0] + size * 0.03, point[1]), text,
@@ -217,6 +340,11 @@ def patch_pdf(source_rel: str, old_content: Any, new_content: Any) -> dict[str, 
     return {"data": buf, "applied": applied, "failed": failed, "unchanged": False}
 
 
+def _is_pure_cjk(s: str) -> bool:
+    """整段都是中文（等宽 advance，可按字符数比例估算水平范围）。"""
+    return bool(s) and all("\u4e00" <= c <= "\u9fff" or c in "（）()·、" for c in s)
+
+
 def _replace_in_line(page, line: dict, raw_old: str, new_val, path: str):
     """在视觉行内替换 raw_old → new_val（跨 Span  redact + 原位重插）。
 
@@ -248,8 +376,9 @@ def _replace_in_line(page, line: dict, raw_old: str, new_val, path: str):
     for i in affected[1:]:
         union |= fitz.Rect(spans[i]["bbox"])
     color = _span_color(first)
-    bold = "bold" in (first.get("font", "") or "").lower()
+    bold = _detect_bold(page, first)
     size = float(first.get("size") or 10.0)
+    x, y = _span_baseline(first)
 
     if new_val is None:
         # 删除：只 redact 受影响区间
@@ -261,12 +390,26 @@ def _replace_in_line(page, line: dict, raw_old: str, new_val, path: str):
     # 整行就是旧值（如公司名独占一行）→ 整段替换
     if _norm(joined) == _norm(raw_old):
         new_segment = new_val
-    fontname = "china-s" if re.search(r"[\u4e00-\u9fff]", new_segment) else "helv"
-    fit_size = _fit_size(new_segment, fontname, size, union.width)
-    page.add_redact_annot(union)
+    # 字体保真：用内置 Noto Sans SC（与原 PDF 黑体观感一致），按原 span 粗细选字重
+    font = _load_font(bold)
+
+    # 重绘范围：默认只覆盖受影响的 Span（逐字 Span 的 PDF 精确到单字）；
+    # 若整行是一个 Span 且变化部分是纯中文，按字符数比例收窄，保住同行其他内容
+    redact_rect = union
+    insert_x = x
+    if len(affected) == 1 and len(segment) > len(raw_old) and _is_pure_cjk(segment):
+        sb = fitz.Rect(first["bbox"])
+        prefix = segment.find(raw_old)
+        if prefix >= 0:
+            frac0 = prefix / len(segment)
+            frac1 = (prefix + len(raw_old)) / len(segment)
+            redact_rect = fitz.Rect(sb.x0 + sb.width * frac0, sb.y0,
+                                    sb.x0 + sb.width * frac1, sb.y1)
+            insert_x = redact_rect.x0
+    fit_size = _fit_size(new_segment, size, redact_rect.width, font)
+    page.add_redact_annot(redact_rect)
     page.apply_redactions(images=fitz.PDF_REDACT_IMAGE_NONE)
-    x, y = _span_baseline(first)
-    _insert_text(page, (x, y), new_segment, fit_size, fontname, color, bold)
+    _insert_text(page, (insert_x, y), new_segment, fit_size, color, bold, font)
     if fit_size < size * 0.92:
         if fit_size >= MIN_FONT_SIZE:
             return True, f"字号缩至 {fit_size:.1f}pt 以适配原宽度"
