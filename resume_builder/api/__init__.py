@@ -3,7 +3,8 @@ from flask import Blueprint
 
 
 def register_blueprints(app) -> None:
-    from . import analyze, backups, documents, export, fonts, imports, legacy, llm, render, templates
+    from . import (analyze, backups, documents, export, fonts, imports, legacy, llm,
+                   logs, render, templates)
 
     app.register_blueprint(templates.bp)
     app.register_blueprint(documents.bp)
@@ -14,4 +15,5 @@ def register_blueprints(app) -> None:
     app.register_blueprint(llm.bp)
     app.register_blueprint(analyze.bp)
     app.register_blueprint(backups.bp)
+    app.register_blueprint(logs.bp)
     app.register_blueprint(legacy.bp)

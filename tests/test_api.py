@@ -256,3 +256,35 @@ def test_template_preview_route(client):
     assert r.get_data()[:4] == b"\x89PNG"
     assert client.get("/api/v1/templates/nope/preview.png").status_code == 404
     assert client.get("/api/v1/templates/classic/preview.png").headers["Content-Type"].startswith("image/")
+
+
+# ---------------- 运行日志 API ----------------
+
+def test_logs_client_error_recorded(client):
+    r = client.post("/api/v1/logs/client", json={
+        "message": "__test_client_error__", "source": "test", "lineno": 1, "colno": 2,
+    })
+    assert r.status_code == 200
+    r2 = client.get("/api/v1/logs/tail?lines=50")
+    assert r2.status_code == 200
+    body = r2.get_json()
+    assert any("__test_client_error__" in l for l in body["lines"]), body["lines"][-3:]
+    assert body["path"].endswith("resume-studio.log")
+
+
+def test_logs_client_requires_message(client):
+    assert client.post("/api/v1/logs/client", json={}).status_code == 400
+
+
+def test_unhandled_exception_returns_json_500(client, monkeypatch):
+    """未捕获异常：统一 JSON 500 + 落日志（不返回 HTML 错误页）。"""
+    from resume_builder.services import documents as store
+
+    def boom(*a, **k):
+        raise RuntimeError("__test_boom__")
+
+    monkeypatch.setattr(store, "list_documents", boom)
+    r = client.get("/api/v1/documents")
+    assert r.status_code == 500
+    body = r.get_json()
+    assert body and "error" in body and body.get("logged") is True

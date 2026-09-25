@@ -6,7 +6,7 @@ import threading
 import time
 from pathlib import Path
 
-from flask import Flask, send_from_directory
+from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 
 from . import config
@@ -15,6 +15,12 @@ from .api import register_blueprints
 
 def create_app() -> Flask:
     config.ensure_dirs()
+
+    # ---- 运行日志（文件轮转，问题定位用）----
+    from . import logging_setup
+
+    logging_setup.setup_logging()
+    logger = logging_setup.get_logger("app")
 
     app = Flask(
         __name__,
@@ -89,6 +95,31 @@ def create_app() -> Flask:
     from .services import documents as store
 
     store.init_db()
+
+    # ---- 全局错误处理：未捕获异常落日志 + 统一 JSON 500 ----
+    @app.errorhandler(Exception)
+    def _unhandled(exc):  # noqa: ANN001
+        from werkzeug.exceptions import HTTPException
+
+        if isinstance(exc, HTTPException):
+            if exc.code and exc.code >= 500:
+                logger.error("HTTP %s: %s %s", exc.code, request.method, request.path,
+                             exc_info=exc)
+            return exc
+        logger.exception("未处理异常 %s %s: %s", request.method, request.path, exc)
+        return jsonify({"error": f"服务器内部错误：{exc}", "logged": True}), 500
+
+    @app.after_request
+    def _log_slow(resp):
+        try:
+            import time as _t
+
+            started = getattr(request, "_started_at", None)
+            if started and resp.status_code >= 500:
+                logger.error("%s %s -> %s", request.method, request.path, resp.status_code)
+        except Exception:  # noqa: BLE001 日志本身绝不阻塞响应
+            pass
+        return resp
 
     return app
 

@@ -121,9 +121,11 @@ def versions_doc(doc_id: str):
 
 @bp.get("/<doc_id>/source-pages")
 def source_pages_doc(doc_id: str):
-    """渲染文档关联的原始 PDF 为逐页图片（对照导入的「原格式」视图）。"""
+    """渲染文档关联的原始 PDF 为逐页图片（对照导入的「原格式」视图，静态原图）。"""
+    from .. import logging_setup
     from ..services import source_pdf
 
+    log = logging_setup.get_logger("source-pages")
     doc = store.get_document(doc_id)
     if not doc:
         return jsonify({"error": "文档不存在"}), 404
@@ -133,8 +135,56 @@ def source_pages_doc(doc_id: str):
     try:
         pages = source_pdf.render_pages(rel)
     except Exception as e:  # noqa: BLE001
+        log.exception("原始 PDF 渲染失败 %s: %s", doc_id, e)
         return jsonify({"error": f"原始 PDF 渲染失败：{e}"}), 500
     return jsonify({"pages": pages, "pdfUrl": f"/data/{rel}"})
+
+
+@bp.post("/<doc_id>/source-pages")
+def source_pages_live(doc_id: str):
+    """原格式**实时预览**：把调用方给的当前内容补进原始 PDF 再渲染。
+
+     Body: {content: {...}}（前端传 store.doc.content，未保存的编辑也能立刻看到）
+    不落库、不改文档，纯粹为了「边编辑边看原格式效果」。
+    """
+    from .. import logging_setup
+    from ..services import pdf_patch, source_pdf
+
+    log = logging_setup.get_logger("source-pages")
+    doc = store.get_document(doc_id)
+    if not doc:
+        return jsonify({"error": "文档不存在"}), 404
+    rel = doc.get("sourcePdf")
+    if not rel:
+        return jsonify({"error": "该文档没有关联的原始 PDF"}), 400
+    if not doc.get("sourceContent"):
+        return jsonify({"error": "缺少导入时的解析快照，无法计算改动"}), 400
+
+    body = request.get_json(silent=True) or {}
+    content = body.get("content")
+    if not isinstance(content, dict):
+        content = doc.get("content")
+    try:
+        result = pdf_patch.patch_pdf(rel, doc.get("sourceContent"), content)
+    except FileNotFoundError as e:
+        log.error("实时预览：原始 PDF 缺失 %s: %s", doc_id, e)
+        return jsonify({"error": str(e)}), 404
+    except Exception as e:  # noqa: BLE001
+        log.exception("实时预览补丁失败 %s: %s", doc_id, e)
+        return jsonify({"error": f"实时预览失败：{e}"}), 500
+    try:
+        pages, digest = source_pdf.render_live_pages(result["data"])
+    except Exception as e:  # noqa: BLE001
+        log.exception("实时预览渲染失败 %s: %s", doc_id, e)
+        return jsonify({"error": f"实时预览渲染失败：{e}"}), 500
+    return jsonify({
+        "pages": pages,
+        "pdfUrl": f"/data/{rel}",
+        "live": True,
+        "digest": digest,
+        "applied": len(result["applied"]),
+        "failed": result["failed"][:5],
+    })
 
 
 @bp.post("/<doc_id>/versions/<int:version_id>/restore")

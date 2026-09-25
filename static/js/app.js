@@ -32,6 +32,7 @@ import {
 import { bindPaginationControls, exitPaginationMode } from "./components/pagination.js";
 import { openJsonEditor, closeJsonEditor, applyJson, bindImportDialog, renderAll } from "./components/jsonEditor.js";
 import { bindAiPanel } from "./components/aiPanel.js";
+import { initErrorReporter } from "./errorReporter.js";
 
 /* ================= 启动 ================= */
 
@@ -475,7 +476,7 @@ function applyViewMode() {
     previewScroll.hidden = true;
     document.getElementById("paginationBar").hidden = true; // 分页只属于模板预览
     zoomGroup.style.display = "none";
-    loadSourcePdf(doc.sourcePdf);
+    loadSourcePdf(doc.sourcePdf, { live: true });
   } else {
     sourcePane.hidden = true;
     previewScroll.hidden = false;
@@ -484,11 +485,12 @@ function applyViewMode() {
   }
 }
 
-async function loadSourcePdf(rel) {
+async function loadSourcePdf(rel, opts = {}) {
   const pagesEl = document.getElementById("sourcePages");
   const loading = document.getElementById("sourceLoading");
   const missing = document.getElementById("sourceMissing");
   const openBtn = document.getElementById("sourceOpen");
+  const liveInfo = document.getElementById("sourceLiveInfo");
   const url = "/data/" + rel;
   openBtn.href = url;
 
@@ -513,18 +515,23 @@ async function loadSourcePdf(rel) {
     });
   }
 
-  // 已渲染过同一份就不再重复请求
-  if (pagesEl.dataset.rel === rel) return;
-  pagesEl.dataset.rel = rel;
-  pagesEl.textContent = "";
+  const live = !!opts.live;
   loading.hidden = false;
   missing.hidden = true;
-
   try {
-    const resp = await fetch(url, { method: "HEAD" });
-    if (!resp.ok) throw new Error("HTTP " + resp.status);
-    const data = await api.getJson(`/api/v1/documents/${store.doc.id}/source-pages`);
-    loading.hidden = true;
+    // 实时预览：把「当前」（含未保存）内容发给后端打补丁，编辑即所见
+    const data = live
+      ? await api.postJson(`/api/v1/documents/${store.doc.id}/source-pages`,
+                           { content: store.doc.content })
+      : await api.getJson(`/api/v1/documents/${store.doc.id}/source-pages`);
+    // 已渲染过同一版本就不再重复（live 按内容哈希判断，内容没变不重渲染）
+    const key = live ? `live:${data.digest || ""}` : rel;
+    if (pagesEl.dataset.rel === key && pagesEl.childElementCount) {
+      loading.hidden = true;
+      return;
+    }
+    pagesEl.dataset.rel = key;
+    pagesEl.textContent = "";
     if (!data.pages?.length) throw new Error("无页面");
     data.pages.forEach((p) => {
       const fig = document.createElement("figure");
@@ -540,12 +547,44 @@ async function loadSourcePdf(rel) {
       fig.appendChild(no);
       pagesEl.appendChild(fig);
     });
+    loading.hidden = true;
+    // 实时预览状态：同步了几处 / 有没有没能补进原格式的
+    if (liveInfo) {
+      liveInfo.textContent = "";
+      liveInfo.style.color = "";
+      if (live && data.applied) {
+        liveInfo.textContent = `已同步 ${data.applied} 处修改`;
+        liveInfo.style.color = "var(--ok, #16a34a)";
+      } else if (live) {
+        liveInfo.textContent = "与原始 PDF 一致（暂无修改）";
+      }
+      if (live && data.failed?.length) {
+        liveInfo.textContent += ` · ${data.failed.length} 处未能补进原格式（导出时会提示）`;
+        liveInfo.style.color = "var(--warn, #d97706)";
+      }
+    }
   } catch {
     loading.hidden = true;
-    pagesEl.textContent = "";
-    missing.hidden = false;
+    if (pagesEl.dataset.rel !== rel) {
+      pagesEl.dataset.rel = rel;
+      pagesEl.textContent = "";
+      missing.hidden = false;
+    }
   }
 }
+
+// 原格式实时预览：编辑后防抖刷新（400ms）。
+// 预览走 POST 当前内容，不依赖自动保存的时序——未保存的编辑也能立刻看到。
+let _liveSourceTimer = null;
+function scheduleLiveSourceRefresh(delay = 400) {
+  if (store.state.viewMode !== "source" || !store.doc?.sourcePdf) return;
+  clearTimeout(_liveSourceTimer);
+  _liveSourceTimer = setTimeout(() => {
+    const pane = document.getElementById("sourcePane");
+    if (pane && !pane.hidden) loadSourcePdf(store.doc.sourcePdf, { live: true });
+  }, delay);
+}
+store.on("doc", () => scheduleLiveSourceRefresh(400));
 
 /* ================= 删除当前文档后 ================= */
 
@@ -571,6 +610,7 @@ export const app = {
 };
 
 /* ================= GO ================= */
+initErrorReporter();
 boot();
 
 // 调试/自动化句柄：控制台可直接检查当前文档与撤销栈

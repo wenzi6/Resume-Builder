@@ -318,3 +318,38 @@ def test_patch_pdf_keeps_readable_size_for_long_text(tmp_path):
     assert sizes, "长文本未写入"
     assert sizes[0] >= 7.4, f"字号被压到 {sizes[0]}pt：{all_sizes}"
     assert not any(s < 6.5 for s in all_sizes), all_sizes
+
+
+# ---------------- 原格式实时预览（边编辑边看） ----------------
+
+def test_source_pages_live_reflects_unsaved_edits(client, imported):
+    """POST source-pages 用当前内容打补丁渲染——未保存的编辑也能立刻看到。"""
+    doc = client.get(f"/api/v1/documents/{imported}").get_json()["document"]
+    work = doc["content"].get("workExperiences") or []
+    company = next((w.get("company") for w in work if w.get("company")), "")
+    if not company:
+        import pytest
+
+        pytest.skip("样本无公司名")
+    doc["content"]["workExperiences"][0]["company"] = "实时预览测试公司"
+    # 注意：不 PUT 保存，直接拿内容请求实时预览
+    r = client.post(f"/api/v1/documents/{imported}/source-pages", json={"content": doc["content"]})
+    assert r.status_code == 200, r.get_json()
+    body = r.get_json()
+    assert body["live"] is True
+    assert body["applied"] >= 1, body.get("failed")
+    assert body["pages"], "应返回渲染好的页面"
+    assert any("实时预览测试公司" in p.get("url", "") or p.get("page") for p in body["pages"])
+    # 文档本身没被改动（预览不落库）
+    after = client.get(f"/api/v1/documents/{imported}").get_json()["document"]
+    assert after["content"]["workExperiences"][0]["company"] == company
+
+
+def test_source_pages_get_returns_original(client, imported):
+    """GET 仍返回原始 PDF 的静态渲染（不掺入改动）。"""
+    r = client.get(f"/api/v1/documents/{imported}/source-pages")
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body["pages"]
+    assert not body.get("live")
+    assert "/pages/" in body["pages"][0]["url"]

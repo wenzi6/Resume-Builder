@@ -606,6 +606,41 @@ export function bindDataSafety() {
       toastError("备份失败：" + e.message);
     }
   });
+  // 查看运行日志（问题定位：把末尾几行发给开发者）
+  document.getElementById("btnViewLog").addEventListener("click", async () => {
+    const box = document.getElementById("logText");
+    const info = document.getElementById("logInfo");
+    document.getElementById("logOverlay").hidden = false;
+    box.value = "加载中…";
+    info.textContent = "";
+    try {
+      const r = await api.getJson("/api/v1/logs/tail?lines=200");
+      box.value = r.lines?.length ? r.lines.join("\n") : "（日志为空）";
+      info.textContent = `${r.path} · 共 ${r.total} 行 · 显示末尾 ${r.lines?.length || 0} 行`;
+    } catch (e) {
+      box.value = "日志读取失败：" + e.message;
+    }
+  });
+  document.getElementById("btnLogOpenDir").addEventListener("click", async () => {
+    try {
+      const r = await api.postJson("/api/v1/logs/open", {});
+      if (!r.ok) toast("无法自动打开目录：" + r.path, "error");
+    } catch (e) {
+      toastError(e.message);
+    }
+  });
+  document.getElementById("btnLogCopy").addEventListener("click", async () => {
+    const text = document.getElementById("logText").value;
+    try {
+      await navigator.clipboard.writeText(text);
+      toastSuccess("日志已复制");
+    } catch {
+      toast("复制失败，请手动选择文本复制", "error");
+    }
+  });
+  document.getElementById("btnCloseLog").addEventListener("click", () => {
+    document.getElementById("logOverlay").hidden = true;
+  });
   // 文档搜索（输入即过滤）
   const search = document.getElementById("docSearch");
   if (search && !search.dataset.bound) {
