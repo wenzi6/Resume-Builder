@@ -360,6 +360,17 @@
 
         <!-- 设置 -->
         <section class="ai-pane" id="aiSettings" hidden>
+          <div class="cfg-manager">
+            <div class="cfg-manager-row">
+              <select class="field-input cfg-select" id="aiConfigSelect" aria-label="选择配置"></select>
+              <button class="btn btn-sm" type="button" id="btnNewConfig" title="新建一套配置">＋ 新建</button>
+              <button class="btn btn-sm btn-ghost" type="button" id="btnDeleteConfig" title="删除当前配置">删除</button>
+            </div>
+            <div class="field-group" style="margin-top:10px">
+              <label class="field-label" for="aiConfigName">配置名称（自定义，如：DeepSeek 主力 / 公司 GPT）</label>
+              <input class="field-input" type="text" id="aiConfigName" placeholder="给这套配置起个名字" maxlength="40">
+            </div>
+          </div>
           <p class="ai-hint" data-i18n="ai.setHint">支持任何 OpenAI 兼容服务（DeepSeek / Kimi / 通义千问 / OpenAI / Ollama 等）。Key 只保存在本机 data/llm_config.json，不会上传到除服务商以外的任何地方。</p>
           <div class="field-row">
             <div class="field-group">

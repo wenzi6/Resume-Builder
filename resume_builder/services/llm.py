@@ -80,59 +80,196 @@ AZURE_API_VERSION = "2024-06-01"
 
 
 # ---------------------------------------------------------------- 配置
+#
+# 支持多套命名配置（llm_configs.json）：
+#   {"active": "<id>", "configs": [{id, name, base_url, api_key, model, format, timeout}]}
+# 旧版单配置 llm_config.json 首次读取时自动迁移为「默认配置」。
+# load_config / save_config / public_config 操作的是「当前激活配置」（保持兼容）。
 
 
 def _config_path() -> Path:
     return config.DATA_DIR / "llm_config.json"
 
 
-def load_config() -> dict[str, Any]:
-    """读取配置（含 key，仅服务端使用）。"""
-    cfg = dict(DEFAULT_CONFIG)
+def _configs_path() -> Path:
+    return config.DATA_DIR / "llm_configs.json"
+
+
+def _new_config_id() -> str:
+    import uuid
+
+    return uuid.uuid4().hex[:12]
+
+
+def _clean_config(raw: Any, current: dict | None = None) -> dict:
+    """清洗一套配置（白名单字段；api_key 空串表示保留原值）。"""
+    fmt = str((raw or {}).get("format") or "openai")
+    if fmt not in {f["id"] for f in API_FORMATS}:
+        fmt = "openai"
+    out = {
+        "id": str((raw or {}).get("id") or _new_config_id()),
+        "name": str((raw or {}).get("name") or "未命名配置")[:40],
+        "base_url": str((raw or {}).get("base_url") or "").strip().rstrip("/"),
+        "model": str((raw or {}).get("model") or "").strip()[:80],
+        "format": fmt,
+        "timeout": max(10, min(int((raw or {}).get("timeout") or 90), MAX_TIMEOUT)),
+    }
+    key = str((raw or {}).get("api_key") or "").strip()
+    out["api_key"] = key if key else ((current or {}).get("api_key") or "")
+    return out
+
+
+def load_configs() -> dict[str, Any]:
+    """读取全部配置（含 key，仅服务端使用）。"""
+    data: dict[str, Any] = {"active": "", "configs": []}
     try:
-        raw = json.loads(_config_path().read_text(encoding="utf-8"))
-        if isinstance(raw, dict):
-            cfg.update({k: raw[k] for k in DEFAULT_CONFIG if k in raw})
+        raw = json.loads(_configs_path().read_text(encoding="utf-8"))
+        if isinstance(raw, dict) and isinstance(raw.get("configs"), list):
+            data = {"active": str(raw.get("active") or ""), "configs": raw["configs"]}
     except (OSError, json.JSONDecodeError):
         pass
+    # 迁移：旧版单配置文件 → 默认配置
+    if not data["configs"]:
+        legacy = dict(DEFAULT_CONFIG)
+        try:
+            raw = json.loads(_config_path().read_text(encoding="utf-8"))
+            if isinstance(raw, dict):
+                legacy.update({k: raw[k] for k in DEFAULT_CONFIG if k in raw})
+        except (OSError, json.JSONDecodeError):
+            pass
+        cfg = _clean_config(legacy)
+        cfg["name"] = "默认配置"
+        data = {"active": cfg["id"], "configs": [cfg]}
+        save_configs(data)
+    # 校正 active
+    ids = [c.get("id") for c in data["configs"] if isinstance(c, dict) and c.get("id")]
+    if not ids:
+        cfg = _clean_config({"name": "默认配置"})
+        data = {"active": cfg["id"], "configs": [cfg]}
+        save_configs(data)
+    elif data["active"] not in ids:
+        data["active"] = ids[0]
+    return data
+
+
+def save_configs(data: dict[str, Any]) -> None:
+    path = _configs_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _active(data: dict[str, Any]) -> dict:
+    for c in data["configs"]:
+        if isinstance(c, dict) and c.get("id") == data["active"]:
+            return c
+    return data["configs"][0] if data["configs"] else {}
+
+
+def load_config() -> dict[str, Any]:
+    """读取当前激活配置（含 key，仅服务端使用）。"""
+    cfg = dict(DEFAULT_CONFIG)
+    cfg.update(_active(load_configs()))
     cfg["timeout"] = max(10, min(int(cfg.get("timeout") or 90), MAX_TIMEOUT))
     return cfg
 
 
 def save_config(cfg: dict[str, Any]) -> dict[str, Any]:
-    """保存配置（只认白名单字段；key 允许为空表示保留不动由调用方处理）。"""
-    path = _config_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    current = load_config()
-    fmt = str(cfg.get("format") or "openai")
-    if fmt not in {f["id"] for f in API_FORMATS}:
-        fmt = "openai"
-    out = {
-        "base_url": str(cfg.get("base_url") or "").strip().rstrip("/"),
-        "model": str(cfg.get("model") or "").strip()[:80],
-        "format": fmt,
-        "timeout": max(10, min(int(cfg.get("timeout") or 90), MAX_TIMEOUT)),
-    }
-    # api_key：传入空串表示保留原值（前端「不修改 key」的语义）
-    key = str(cfg.get("api_key") or "").strip()
-    out["api_key"] = key if key else current.get("api_key", "")
-    path.write_text(json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8")
-    return out
+    """保存当前激活配置（字段同单配置时代；name 缺省保留）。"""
+    data = load_configs()
+    cur = _active(data)
+    merged = {**cur, **cfg}
+    cleaned = _clean_config(merged, cur)
+    cleaned["id"] = cur.get("id") or cleaned["id"]
+    cleaned["name"] = str(cfg.get("name") or cur.get("name") or "未命名配置")[:40]
+    data["configs"] = [cleaned if c.get("id") == cleaned["id"] else c for c in data["configs"]]
+    data["active"] = cleaned["id"]
+    save_configs(data)
+    return cleaned
 
 
 def public_config() -> dict[str, Any]:
-    """给前端的配置视图：绝不返回 key 本身。"""
-    cfg = load_config()
+    """给前端的当前激活配置视图：绝不返回 key 本身。"""
+    data = load_configs()
+    cur = _active(data)
     return {
-        "configured": bool(cfg["base_url"] and cfg["api_key"] and cfg["model"]),
-        "base_url": cfg["base_url"],
-        "model": cfg["model"],
-        "format": cfg["format"],
-        "has_key": bool(cfg["api_key"]),
-        "timeout": cfg["timeout"],
+        "id": cur.get("id", ""),
+        "name": cur.get("name", ""),
+        "configured": bool(cur.get("base_url") and cur.get("api_key") and cur.get("model")),
+        "base_url": cur.get("base_url", ""),
+        "model": cur.get("model", ""),
+        "format": cur.get("format", "openai"),
+        "has_key": bool(cur.get("api_key")),
+        "timeout": cur.get("timeout", 90),
         "presets": PROVIDER_PRESETS,
         "formats": API_FORMATS,
     }
+
+
+def public_configs() -> dict[str, Any]:
+    """全部配置列表（不含 key）+ 当前激活 id。"""
+    data = load_configs()
+    items = []
+    for c in data["configs"]:
+        if not isinstance(c, dict) or not c.get("id"):
+            continue
+        items.append({
+            "id": c["id"],
+            "name": c.get("name") or "未命名配置",
+            "base_url": c.get("base_url", ""),
+            "model": c.get("model", ""),
+            "format": c.get("format", "openai"),
+            "has_key": bool(c.get("api_key")),
+            "configured": bool(c.get("base_url") and c.get("api_key") and c.get("model")),
+        })
+    return {"configs": items, "active": data["active"]}
+
+
+def create_config(payload: dict) -> dict[str, Any]:
+    """新建一套命名配置并激活。"""
+    data = load_configs()
+    cfg = _clean_config(payload)
+    cfg["id"] = _new_config_id()
+    cfg["name"] = str(payload.get("name") or "新配置")[:40]
+    data["configs"].append(cfg)
+    data["active"] = cfg["id"]
+    save_configs(data)
+    return cfg
+
+
+def update_config(config_id: str, payload: dict) -> dict[str, Any] | None:
+    data = load_configs()
+    cur = next((c for c in data["configs"] if isinstance(c, dict) and c.get("id") == config_id), None)
+    if cur is None:
+        return None
+    merged = {**cur, **payload, "id": config_id}
+    cleaned = _clean_config(merged, cur)
+    cleaned["id"] = config_id
+    cleaned["name"] = str(payload.get("name") or cur.get("name") or "未命名配置")[:40]
+    data["configs"] = [cleaned if c.get("id") == config_id else c for c in data["configs"]]
+    save_configs(data)
+    return cleaned
+
+
+def delete_config(config_id: str) -> bool:
+    """删除配置；删的是激活配置时切换到剩下的第一套。"""
+    data = load_configs()
+    before = len(data["configs"])
+    data["configs"] = [c for c in data["configs"] if not (isinstance(c, dict) and c.get("id") == config_id)]
+    if len(data["configs"]) == before:
+        return False
+    if data["active"] == config_id:
+        data["active"] = data["configs"][0]["id"] if data["configs"] else ""
+    save_configs(data)
+    return True
+
+
+def activate_config(config_id: str) -> bool:
+    data = load_configs()
+    if not any(isinstance(c, dict) and c.get("id") == config_id for c in data["configs"]):
+        return False
+    data["active"] = config_id
+    save_configs(data)
+    return True
 
 
 # ---------------------------------------------------------------- HTTP 传输

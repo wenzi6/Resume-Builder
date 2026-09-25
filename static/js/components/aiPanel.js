@@ -7,6 +7,7 @@
 import { store } from "../store.js";
 import { api } from "../api.js";
 import { toast, toastSuccess, toastError } from "./toast.js";
+import { confirmDialog } from "./sidebar.js";
 import { t } from "../i18n.js";
 import { renderForm } from "./form.js";
 
@@ -152,6 +153,7 @@ const FORMAT_HINTS = {
 async function loadAiConfig() {
   try {
     aiCfg = await api.getJson("/api/v1/llm/config");
+    renderConfigSelect();
   } catch (e) {
     setStatus("aiConfigStatus", "配置加载失败：" + e.message, "error");
     return;
@@ -201,6 +203,90 @@ async function loadAiConfig() {
   const keyInput = document.getElementById("aiApiKey");
   keyInput.value = "";
   keyInput.placeholder = aiCfg.has_key ? "已保存（留空则不修改）" : "sk-…";
+  document.getElementById("aiConfigName").value = aiCfg.name || "";
+}
+
+/** 渲染配置选择下拉（全部命名配置，当前激活项置顶）。 */
+async function renderConfigSelect() {
+  const sel = document.getElementById("aiConfigSelect");
+  let data;
+  try {
+    data = await api.getJson("/api/v1/llm/configs");
+  } catch {
+    return;
+  }
+  sel.textContent = "";
+  for (const c of data.configs || []) {
+    const opt = document.createElement("option");
+    opt.value = c.id;
+    const marks = [];
+    if (!c.configured) marks.push("未配置");
+    opt.textContent = c.name + (marks.length ? `（${marks.join("·")}）` : "");
+    if (c.id === data.active) opt.selected = true;
+    sel.appendChild(opt);
+  }
+}
+
+/** 切换配置。 */
+async function switchConfig(id) {
+  try {
+    await api.postJson(`/api/v1/llm/configs/${id}/activate`, {});
+    aiCfg = await api.getJson("/api/v1/llm/config");
+    renderConfigSelect();
+    fillConfigForm();
+    setStatus("aiConfigStatus", `已切换到配置「${aiCfg.name}」`, "ok");
+  } catch (e) {
+    setStatus("aiConfigStatus", e.message, "error");
+  }
+}
+
+/** 新建配置（空白，立即激活）。 */
+async function createConfig() {
+  try {
+    await api.postJson("/api/v1/llm/configs", {
+      name: "新配置", base_url: "", api_key: "", model: "", format: "openai",
+    });
+    aiCfg = await api.getJson("/api/v1/llm/config");
+    renderConfigSelect();
+    fillConfigForm();
+    setStatus("aiConfigStatus", "已新建配置，请填写 Base URL / API Key / 模型", "");
+    document.getElementById("aiBaseUrl").focus();
+  } catch (e) {
+    setStatus("aiConfigStatus", e.message, "error");
+  }
+}
+
+/** 删除当前配置（至少保留一套时）。 */
+async function deleteCurrentConfig() {
+  const data = await api.getJson("/api/v1/llm/configs");
+  if ((data.configs || []).length <= 1) {
+    setStatus("aiConfigStatus", "至少保留一套配置，不能全部删除", "error");
+    return;
+  }
+  const ok = await confirmDialog(`确定删除配置「${aiCfg.name}」？删除后不可恢复。`);
+  if (!ok) return;
+  try {
+    await api.del(`/api/v1/llm/configs/${aiCfg.id}`);
+    aiCfg = await api.getJson("/api/v1/llm/config");
+    renderConfigSelect();
+    fillConfigForm();
+    setStatus("aiConfigStatus", "配置已删除", "ok");
+  } catch (e) {
+    setStatus("aiConfigStatus", e.message, "error");
+  }
+}
+
+/** 用当前激活配置回填表单字段。 */
+function fillConfigForm() {
+  document.getElementById("aiBaseUrl").value = aiCfg.base_url || "";
+  document.getElementById("aiModel").value = aiCfg.model || "";
+  document.getElementById("aiFormat").value = aiCfg.format || "openai";
+  document.getElementById("aiTimeout").value = aiCfg.timeout || 90;
+  document.getElementById("aiConfigName").value = aiCfg.name || "";
+  const keyInput = document.getElementById("aiApiKey");
+  keyInput.value = "";
+  keyInput.placeholder = aiCfg.has_key ? "已保存（留空则不修改）" : "sk-…";
+  updateFormatHint();
 }
 
 function updateFormatHint() {
@@ -221,8 +307,15 @@ async function saveAiConfig(opts = {}) {
   const format = document.getElementById("aiFormat").value;
   const timeout = parseInt(document.getElementById("aiTimeout").value, 10) || 90;
   if (!silent) setStatus("aiConfigStatus", "保存中…");
+  const name = document.getElementById("aiConfigName").value.trim();
   try {
-    aiCfg = await api.putJson("/api/v1/llm/config", { base_url: baseUrl, model, api_key: apiKey, format, timeout });
+    aiCfg = await api.putJson("/api/v1/llm/config", { base_url: baseUrl, model, api_key: apiKey, format, timeout, name });
+    // 同步下拉中当前配置的显示文本（名称 / 未配置标记）
+    const opt = document.getElementById("aiConfigSelect").selectedOptions[0];
+    if (opt) {
+      const ok = !!(aiCfg.base_url && aiCfg.model && aiCfg.has_key);
+      opt.textContent = (aiCfg.name || "未命名配置") + (ok ? "" : "（未配置）");
+    }
     if (!silent) {
       document.getElementById("aiApiKey").value = "";
       document.getElementById("aiApiKey").placeholder = "已保存（留空则不修改）";
@@ -251,7 +344,7 @@ function scheduleAiConfigSave() {
 
 /** 绑定 AI 配置字段的自动保存。 */
 function bindAiConfigAutosave() {
-  for (const id of ["aiBaseUrl", "aiModel", "aiApiKey"]) {
+  for (const id of ["aiBaseUrl", "aiModel", "aiApiKey", "aiConfigName"]) {
     document.getElementById(id).addEventListener("input", scheduleAiConfigSave);
   }
   for (const id of ["aiFormat", "aiTimeout"]) {
@@ -1115,6 +1208,9 @@ export function bindAiPanel() {
 
   document.getElementById("btnAiSaveConfig").addEventListener("click", () => saveAiConfig());
   bindAiConfigAutosave();
+  document.getElementById("aiConfigSelect").addEventListener("change", (e) => switchConfig(e.target.value));
+  document.getElementById("btnNewConfig").addEventListener("click", createConfig);
+  document.getElementById("btnDeleteConfig").addEventListener("click", deleteCurrentConfig);
   document.getElementById("btnFetchModels").addEventListener("click", fetchModels);
   bindAiResize();
   // 对话输入框自适应高度

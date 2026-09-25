@@ -26,6 +26,60 @@ def get_config():
     return jsonify(llm.public_config())
 
 
+@bp.get("/configs")
+def get_configs():
+    """全部命名配置列表（不含 key）+ 当前激活 id。"""
+    return jsonify(llm.public_configs())
+
+
+@bp.post("/configs")
+def create_config():
+    """新建一套命名配置（自定义名称）并激活。字段可空，之后在设置页补全。"""
+    body = _body()
+    base_url = str(body.get("base_url") or "").strip()
+    if base_url and not base_url.startswith(("http://", "https://")):
+        return jsonify({"error": "Base URL 必须以 http:// 或 https:// 开头"}), 400
+    cfg = llm.create_config(body)
+    return jsonify({"config": _public_one(cfg), "configs": llm.public_configs()})
+
+
+@bp.put("/configs/<config_id>")
+def update_config(config_id: str):
+    """更新指定配置（含改名）。"""
+    body = _body()
+    cfg = llm.update_config(config_id, body)
+    if cfg is None:
+        return jsonify({"error": "配置不存在"}), 404
+    return jsonify({"config": _public_one(cfg), "configs": llm.public_configs()})
+
+
+@bp.delete("/configs/<config_id>")
+def delete_config(config_id: str):
+    if not llm.delete_config(config_id):
+        return jsonify({"error": "配置不存在"}), 404
+    return jsonify({"config": llm.public_config(), "configs": llm.public_configs()})
+
+
+@bp.post("/configs/<config_id>/activate")
+def activate_config(config_id: str):
+    if not llm.activate_config(config_id):
+        return jsonify({"error": "配置不存在"}), 404
+    return jsonify({"config": llm.public_config(), "configs": llm.public_configs()})
+
+
+def _public_one(cfg: dict) -> dict:
+    return {
+        "id": cfg.get("id", ""),
+        "name": cfg.get("name", ""),
+        "base_url": cfg.get("base_url", ""),
+        "model": cfg.get("model", ""),
+        "format": cfg.get("format", "openai"),
+        "has_key": bool(cfg.get("api_key")),
+        "configured": bool(cfg.get("base_url") and cfg.get("api_key") and cfg.get("model")),
+        "timeout": cfg.get("timeout", 90),
+    }
+
+
 @bp.put("/config")
 def put_config():
     body = _body()

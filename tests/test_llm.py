@@ -16,6 +16,19 @@ def _isolated_config(tmp_path, monkeypatch):
     yield tmp_path
 
 
+@pytest.fixture()
+def isolated_config(tmp_path, monkeypatch):
+    """隔离配置目录并预置一套初始配置，返回目录 Path（多配置测试用）。"""
+    monkeypatch.setattr(llm.config, "DATA_DIR", tmp_path)
+    (tmp_path / "llm_config.json").unlink(missing_ok=True)
+    (tmp_path / "llm_configs.json").write_text(json.dumps({
+        "active": "init",
+        "configs": [{"id": "init", "name": "初始", "base_url": "", "api_key": "",
+                     "model": "", "format": "openai", "timeout": 90}],
+    }), encoding="utf-8")
+    return tmp_path
+
+
 def _mock_chat(monkeypatch, reply: str):
     """mock _http_post，返回指定的 assistant 内容；记录调用参数。"""
     calls = []
@@ -74,10 +87,11 @@ def test_save_config_empty_key_keeps_existing():
 
 def test_config_stored_on_disk_only():
     _configured()
-    path = llm._config_path()
+    path = llm._configs_path()
     assert path.exists()
     raw = json.loads(path.read_text(encoding="utf-8"))
-    assert raw["api_key"] == "sk-test"  # 落盘在 gitignored 的 data/ 下
+    active = next(c for c in raw["configs"] if c["id"] == raw["active"])
+    assert active["api_key"] == "sk-test"  # 落盘在 gitignored 的 data/ 下
 
 
 def test_config_rejects_bad_input(client):
@@ -782,3 +796,126 @@ def test_config_allows_missing_model(client):
 def test_config_still_rejects_empty_base_url(client):
     r = client.put("/api/v1/llm/config", json={"base_url": "", "model": "m"})
     assert r.status_code == 400
+
+
+# ---------------- 多配置管理 ----------------
+
+def test_configs_migration_from_legacy(tmp_path):
+    """旧版 llm_config.json 自动迁移为「默认配置」。"""
+    tmp_path.joinpath("llm_config.json").write_text(
+        '{"base_url": "https://api.deepseek.com", "api_key": "sk-old", "model": "deepseek-chat"}',
+        encoding="utf-8")
+    data = llm.load_configs()
+    assert len(data["configs"]) == 1
+    assert data["configs"][0]["name"] == "默认配置"
+    assert data["active"] == data["configs"][0]["id"]
+    assert llm.load_config()["model"] == "deepseek-chat"
+
+
+def test_create_and_list_configs(isolated_config):
+    cfg = llm.create_config({"name": "我的 DeepSeek", "base_url": "https://api.deepseek.com",
+                             "api_key": "sk-a", "model": "deepseek-chat"})
+    assert cfg["name"] == "我的 DeepSeek"
+    pub = llm.public_configs()
+    assert any(c["name"] == "我的 DeepSeek" for c in pub["configs"])
+    assert pub["active"] == cfg["id"]
+    # 列表不含 key
+    assert "sk-a" not in json.dumps(pub)
+
+
+def test_create_second_config_activates_it(isolated_config):
+    c1 = llm.create_config({"name": "配置一", "base_url": "https://a.com", "api_key": "k1", "model": "m1"})
+    c2 = llm.create_config({"name": "配置二", "base_url": "https://b.com", "api_key": "k2", "model": "m2"})
+    assert llm.public_configs()["active"] == c2["id"]
+    assert llm.load_config()["model"] == "m2"
+    # 切回配置一
+    assert llm.activate_config(c1["id"])
+    assert llm.load_config()["model"] == "m1"
+
+
+def test_update_config_name(isolated_config):
+    cfg = llm.create_config({"name": "旧名", "base_url": "https://a.com", "api_key": "k", "model": "m"})
+    llm.update_config(cfg["id"], {"name": "新名字"})
+    pub = llm.public_configs()
+    cur = next(c for c in pub["configs"] if c["id"] == cfg["id"])
+    assert cur["name"] == "新名字"
+    # 其他字段保留
+    assert cur["model"] == "m"
+
+
+def test_delete_config(isolated_config):
+    c1 = llm.create_config({"name": "保留", "base_url": "https://a.com", "api_key": "k1", "model": "m1"})
+    c2 = llm.create_config({"name": "删除", "base_url": "https://b.com", "api_key": "k2", "model": "m2"})
+    assert llm.delete_config(c2["id"])
+    pub = llm.public_configs()
+    names = [c["name"] for c in pub["configs"]]
+    assert "删除" not in names and "保留" in names
+    # 删的是激活配置 → active 仍指向一套有效配置
+    assert pub["active"] in [c["id"] for c in pub["configs"]]
+    assert not llm.delete_config("nonexistent")
+
+
+def test_save_config_updates_active(isolated_config):
+    """旧接口 PUT /config 语义：更新当前激活配置。"""
+    c1 = llm.create_config({"name": "A", "base_url": "https://a.com", "api_key": "k1", "model": "m1"})
+    llm.create_config({"name": "B", "base_url": "https://b.com", "api_key": "k2", "model": "m2"})
+    llm.save_config({"base_url": "https://c.com", "model": "m3", "name": "B 改名"})
+    assert llm.load_config()["model"] == "m3"
+    assert llm.load_config()["base_url"] == "https://c.com"
+    pub = llm.public_configs()
+    b = next(c for c in pub["configs"] if c["id"] == llm.public_config()["id"])
+    assert b["name"] == "B 改名"
+    # A 不受影响
+    a = next(c for c in pub["configs"] if c["id"] == c1["id"])
+    assert a["model"] == "m1"
+
+
+def test_api_configs_endpoints(client):
+    # 列表（初始含迁移出的默认配置）
+    r = client.get("/api/v1/llm/configs")
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body["configs"] and "active" in body
+
+    # 新建（自定义名称）
+    r = client.post("/api/v1/llm/configs", json={
+        "name": "API 测试配置", "base_url": "https://api.example.com",
+        "api_key": "sk-api", "model": "m1"})
+    assert r.status_code == 200
+    new_id = r.get_json()["config"]["id"]
+    assert r.get_json()["configs"]["active"] == new_id
+
+    # 改名
+    r = client.put(f"/api/v1/llm/configs/{new_id}", json={"name": "改名后"})
+    assert r.status_code == 200
+    assert r.get_json()["config"]["name"] == "改名后"
+
+    # 激活（新建另一套后切回）
+    r2 = client.post("/api/v1/llm/configs", json={
+        "name": "另一套", "base_url": "https://api2.example.com", "api_key": "sk2", "model": "m2"})
+    other_id = r2.get_json()["config"]["id"]
+    r = client.post(f"/api/v1/llm/configs/{new_id}/activate")
+    assert r.status_code == 200
+    assert r.get_json()["configs"]["active"] == new_id
+    assert client.get("/api/v1/llm/config").get_json()["model"] == "m1"
+
+    # 删除
+    r = client.delete(f"/api/v1/llm/configs/{other_id}")
+    assert r.status_code == 200
+    assert client.delete("/api/v1/llm/configs/nonexistent").status_code == 404
+
+
+def test_api_create_config_blank_ok(client):
+    """新建允许全空（用户在设置页补全），仅 URL 格式错才拒。"""
+    r = client.post("/api/v1/llm/configs", json={"name": "x"})
+    assert r.status_code == 200
+    r = client.post("/api/v1/llm/configs", json={"name": "x", "base_url": "ftp://bad"})
+    assert r.status_code == 400
+
+
+def test_api_configs_never_leak_key(client):
+    r = client.post("/api/v1/llm/configs", json={
+        "name": "泄漏检查", "base_url": "https://api.example.com", "api_key": "sk-secret-123", "model": "m"})
+    assert r.status_code == 200
+    body = r.get_data(as_text=True)
+    assert "sk-secret-123" not in body
