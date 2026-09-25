@@ -247,3 +247,12 @@ def _cleanup_imported_templates():
     for p in TEMPLATES_DIR.iterdir():
         if p.is_dir() and p.name not in BUILTIN_TEMPLATES:
             shutil.rmtree(p, ignore_errors=True)
+
+
+def test_template_preview_route(client):
+    """模板预览图路由。"""
+    r = client.get("/api/v1/templates/classic/preview.png")
+    assert r.status_code == 200
+    assert r.get_data()[:4] == b"\x89PNG"
+    assert client.get("/api/v1/templates/nope/preview.png").status_code == 404
+    assert client.get("/api/v1/templates/classic/preview.png").headers["Content-Type"].startswith("image/")

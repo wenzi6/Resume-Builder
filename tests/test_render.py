@@ -151,3 +151,47 @@ def test_worker_pool_fallback_on_broken(doc_general, monkeypatch):
     assert info["pageCount"] >= 1
     info2 = pdf_engine.measure_pages(doc)
     assert info2["pageCount"] >= 1
+
+
+# ---------------- 排版深度：标题字体 + 区块级覆盖 ----------------
+
+
+def test_head_font_design(doc_general):
+    """headFont 独立于 fontFamily 生效。"""
+    from resume_builder.engine.tokens import build_root_css
+
+    css = build_root_css({"fontFamily": "sans", "headFont": "serif"})
+    assert "Noto Serif SC" in css.split("--r-font-head:")[1].split(";")[0]
+    assert "Noto Sans SC" in css.split("--r-font-body:")[1].split(";")[0]
+
+
+def test_section_design_hide_title(doc_general):
+    """区块级 hideTitle：标题不渲染，内容仍在。"""
+    import re
+
+    from resume_builder.engine.renderer import render_preview
+
+    d = dict(doc_general)
+    for s in d["sections"]:
+        if s["key"] == "skills":
+            s["design"] = {"hideTitle": True}
+    html = render_preview(d)
+    assert 'data-section="skills"' in html
+    m = re.search(r'<section class="rsec" data-section="skills">(.{0,120})', html, re.S)
+    assert "rsec-title" not in (m.group(1) if m else ""), "hideTitle 未生效"
+
+
+def test_section_design_columns(doc_general):
+    """区块级 columns=2：技能双列类名。"""
+    from resume_builder.engine.renderer import render_preview
+
+    d = dict(doc_general)
+    for s in d["sections"]:
+        if s["key"] == "skills":
+            s["design"] = {"columns": 2}
+    html = render_preview(d)
+    assert "rskills-cols" in html, "columns=2 未生效"
+
+
+    html = render_preview(d)
+    assert "rskills-cols" in html or True

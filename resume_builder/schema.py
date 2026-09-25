@@ -17,7 +17,8 @@ DOCUMENT_VERSION = 2
 
 # 设计参数默认值（与 SPEC 5.1 一致）
 DEFAULT_DESIGN: dict[str, Any] = {
-    "fontFamily": "sans",       # sans | serif
+    "fontFamily": "sans",       # sans | serif | 用户字体家族名
+    "headFont": "sans",         # 标题字体（独立于正文）
     "fontScale": 1.0,           # 0.90 ~ 1.15
     "lineHeight": 1.45,         # 1.20 ~ 1.80
     "sectionGap": 18,           # px, 8 ~ 32
@@ -69,6 +70,14 @@ def normalize_design(design: dict[str, Any] | None) -> dict[str, Any]:
 
         if design["fontFamily"] in valid_families():
             d["fontFamily"] = design["fontFamily"]
+    # headFont：标题独立字体（同样支持用户字体）
+    if design.get("headFont") in ("sans", "serif"):
+        d["headFont"] = design["headFont"]
+    elif isinstance(design.get("headFont"), str) and design["headFont"]:
+        from .services.font_manager import valid_families
+
+        if design["headFont"] in valid_families():
+            d["headFont"] = design["headFont"]
     if design.get("dateAlign") in ("right", "below"):
         d["dateAlign"] = design["dateAlign"]
     if isinstance(design.get("accent"), str) and _is_hex_color(design["accent"]):
@@ -135,6 +144,18 @@ def new_document(template_id: str = "classic", title: str = "未命名简历") -
 
 # ---------- 归一化 ----------
 
+def _clean_section_design(design: Any) -> dict[str, Any]:
+    """区块级设计覆盖（目前支持：双列 / 隐藏标题）。"""
+    if not isinstance(design, dict):
+        return {}
+    out: dict[str, Any] = {}
+    if design.get("columns") in (1, 2):
+        out["columns"] = int(design["columns"])
+    if design.get("hideTitle"):
+        out["hideTitle"] = True
+    return out
+
+
 def _norm_section(sec: Any) -> dict[str, Any] | None:
     if not isinstance(sec, dict):
         return None
@@ -143,13 +164,17 @@ def _norm_section(sec: Any) -> dict[str, Any] | None:
         return None
     builtin = registry.section_def(key)
     if builtin:
-        return {
+        out_sec = {
             "key": key,
             "title": str(sec.get("title") or builtin["title"]),
             "type": builtin["type"],
             "fields": builtin["fields"],
             "visible": bool(sec.get("visible", True)),
         }
+        sec_design = _clean_section_design(sec.get("design"))
+        if sec_design:
+            out_sec["design"] = sec_design
+        return out_sec
     # 自定义区块
     sec_type = sec.get("type") if sec.get("type") in ("array", "simple") else "array"
     fields = sec.get("fields")
@@ -164,13 +189,17 @@ def _norm_section(sec: Any) -> dict[str, Any] | None:
         }
         for f in fields
     ]
-    return {
+    out_sec = {
         "key": key,
         "title": str(sec.get("title") or key),
         "type": sec_type,
         "fields": fields,
         "visible": bool(sec.get("visible", True)),
     }
+    sec_design = _clean_section_design(sec.get("design"))
+    if sec_design:
+        out_sec["design"] = sec_design
+    return out_sec
 
 
 def normalize_document(doc: Any) -> dict[str, Any]:

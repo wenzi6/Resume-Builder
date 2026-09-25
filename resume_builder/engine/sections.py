@@ -146,6 +146,19 @@ def _title_field_of(section: dict) -> str | None:
     return None
 
 
+def _sec_design(section: dict) -> dict:
+    """区块级设计覆盖（columns / hideTitle）。"""
+    d = section.get("design")
+    return d if isinstance(d, dict) else {}
+
+
+def _title_html(section: dict, key: str, default: str = "") -> str | None:
+    """区块标题（hideTitle 时返回 None）。"""
+    if _sec_design(section).get("hideTitle"):
+        return None
+    return f'<h2 class="rsec-title">{_esc(section.get("title") or default or key)}</h2>'
+
+
 def render_array(section: dict, content: dict, design: dict) -> str:
     key = section["key"]
     items = content.get(key)
@@ -213,10 +226,10 @@ def render_array(section: dict, content: dict, design: dict) -> str:
 
     if not parts:
         return ""
-    title = _esc(section.get("title") or key)
+    title_html = _title_html(section, key)
     return (
         f'<section class="rsec" data-section="{html.escape(key)}">'
-        f'<h2 class="rsec-title">{title}</h2>'
+        f'{(title_html or "")}'
         f'<div class="rsec-body">{"".join(parts)}</div></section>'
     )
 
@@ -253,7 +266,8 @@ def render_skills(section: dict, content: dict, design: dict) -> str:
                 f'<span class="rrate" role="img" aria-label="熟练度 {rating}/5">{dots}</span></div>'
             )
         if rows:
-            body.append(f'<div class="rskills">{"".join(rows)}</div>')
+            cols = " rskills-cols" if _sec_design(section).get("columns") == 2 else ""
+            body.append(f'<div class="rskills{cols}">{"".join(rows)}</div>')
 
     tag_items = others if isinstance(others, list) else typo.split_lines(str(others))
     chips = []
@@ -266,10 +280,10 @@ def render_skills(section: dict, content: dict, design: dict) -> str:
 
     if not body:
         return ""
-    title = _esc(section.get("title") or "专业技能")
+    title_html = _title_html(section, "skills", "专业技能")
     return (
         '<section class="rsec" data-section="skills">'
-        f'<h2 class="rsec-title">{title}</h2>'
+        f'{(title_html or "")}'
         f'<div class="rsec-body">{"".join(body)}</div></section>'
     )
 
@@ -291,10 +305,10 @@ def render_simple(section: dict, content: dict, design: dict) -> str:
     lst = _list_html(items, cls="rlist rlist-plain")
     if not lst:
         return ""
-    title = _esc(section.get("title") or key)
+    title_html = _title_html(section, key)
     return (
         f'<section class="rsec" data-section="{html.escape(key)}">'
-        f'<h2 class="rsec-title">{title}</h2>'
+        f'{(title_html or "")}'
         f'<div class="rsec-body">{lst}</div></section>'
     )
 

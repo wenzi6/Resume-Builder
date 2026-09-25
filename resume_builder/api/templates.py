@@ -22,6 +22,20 @@ def get_templates():
     return jsonify(list_templates())
 
 
+@bp.get("/templates/<template_id>/preview.png")
+def template_preview(template_id: str):
+    """模板预览图（编辑器模板菜单显示）。"""
+    from flask import send_from_directory
+
+    safe_id = "".join(c for c in template_id if c.isalnum() or c in "-_")
+    if not safe_id or not (TEMPLATES_DIR / safe_id).is_dir():
+        return jsonify({"error": "模板不存在"}), 404
+    p = TEMPLATES_DIR / safe_id / "preview.png"
+    if not p.is_file():
+        return jsonify({"error": "预览图不存在（可运行 tools/gen_template_previews.py 生成）"}), 404
+    return send_from_directory(TEMPLATES_DIR / safe_id, "preview.png", mimetype="image/png")
+
+
 @bp.get("/schema/sections")
 def get_section_schema():
     """区块定义：驱动前端表单渲染的唯一事实来源。"""

@@ -435,6 +435,37 @@ def _run(messages: list[dict], temperature: float, max_tokens: int, on_chunk=Non
     return text
 
 
+def polish_batch(items: list[str], context: str = "") -> dict:
+    """批量润色：一次改写多条 bullet，保持数量与顺序一致。"""
+    cleaned = [str(x).strip() for x in (items or []) if str(x).strip()]
+    if not cleaned:
+        raise ValueError("没有需要润色的内容")
+    if len(cleaned) > 12:
+        raise ValueError("单次最多润色 12 条")
+    numbered = chr(10).join(f"{i + 1}. {t}" for i, t in enumerate(cleaned))
+    ctx = (chr(10) + "所在上下文：" + context) if context else ""
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "你是资深简历顾问。按 Google XYZ 公式批量改写用户给的简历条目。"
+                "铁律：不得编造用户没提供的数据；原文没有数值时用「显著提升」等表述。"
+                "每条以强动词开头、不超过 60 字，中文输出（英文原文则英文输出）。"
+                "严格只输出 JSON 数组，元素为改写后的字符串，数量与顺序和输入一一对应，"
+                "不要输出其他任何内容。"
+            ),
+        },
+        {"role": "user", "content": f"请批量润色以下 {len(cleaned)} 条{ctx}：{numbered}"},
+    ]
+    data = _extract_json(chat(messages, temperature=0.6, max_tokens=2000))
+    if not isinstance(data, list):
+        raise ValueError("AI 未返回 JSON 数组，请重试")
+    results = [str(x) for x in data[: len(cleaned)]]
+    while len(results) < len(cleaned):
+        results.append(cleaned[len(results)])
+    return {"results": results, "original": cleaned}
+
+
 def polish_text(text: str, context: str = "", on_chunk=None) -> dict:
     """按 Google XYZ 公式润色单条内容。"""
     text = (text or "").strip()

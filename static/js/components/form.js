@@ -8,8 +8,8 @@
  */
 
 import { store, contentUtil } from "../store.js";
-import { toastError } from "./toast.js";
-import { openPolish } from "./aiPanel.js";
+import { toastError, toastSuccess } from "./toast.js";
+import { openPolish, openBatchPolish } from "./aiPanel.js";
 
 /* ---------------- 图标 ---------------- */
 const ICONS = {
@@ -264,10 +264,30 @@ function renderSectionForm(section) {
   const title = el("span", "form-sec-title", section.title || section.key);
   head.appendChild(title);
 
+  // 区块级设计覆盖（双列 / 隐藏标题）
+  if (section.type !== "object") {
+    const gear = el("button", "sec-act", "⚙");
+    gear.type = "button";
+    gear.title = "区块排版设置";
+    gear.addEventListener("click", () => openSectionDesign(section));
+    head.appendChild(gear);
+  }
+
   const typeBadge = el("span", "sec-type", {
     object: "单组", array: "列表", skills: "技能", simple: "文本",
   }[section.type] || section.type);
   head.appendChild(typeBadge);
+
+  // 批量润色（有 list 字段的区块）
+  const hasList = (section.fields || []).some((f) => f.type === "list") || section.type === "skills";
+  if (hasList && section.type !== "object") {
+    const batch = el("button", "sec-act", "✨");
+    batch.type = "button";
+    batch.title = "AI 批量润色本区块所有条目";
+    batch.style.color = "#7c3aed";
+    batch.addEventListener("click", () => openBatchPolish(section));
+    head.appendChild(batch);
+  }
 
   const visBtn = el("button", "sec-act", section.visible === false ? "🚫" : "👁");
   visBtn.type = "button";
@@ -493,6 +513,41 @@ export function rerenderSectionForm(key) {
     return;
   }
   old.replaceWith(renderSectionForm(section));
+}
+
+
+/* ---------------- 区块排版设置 ---------------- */
+
+let secDesignTarget = null;
+
+export function openSectionDesign(section) {
+  secDesignTarget = section;
+  const d = section.design || {};
+  document.getElementById("secCols").value = String(d.columns || 1);
+  document.getElementById("secHideTitle").checked = !!d.hideTitle;
+  document.getElementById("secDesignOverlay").hidden = false;
+}
+
+export function bindSectionDesign() {
+  document.getElementById("btnSaveSecDesign").addEventListener("click", () => {
+    if (!secDesignTarget) return;
+    const cols = parseInt(document.getElementById("secCols").value, 10) || 1;
+    const hide = document.getElementById("secHideTitle").checked;
+    const design = {};
+    if (cols === 2) design.columns = 2;
+    if (hide) design.hideTitle = true;
+    if (Object.keys(design).length) secDesignTarget.design = design;
+    else delete secDesignTarget.design;
+    store.touch();
+    document.getElementById("secDesignOverlay").hidden = true;
+    toastSuccess("区块排版已更新");
+  });
+  document.getElementById("btnCloseSecDesign").addEventListener("click", () => {
+    document.getElementById("secDesignOverlay").hidden = true;
+  });
+  document.getElementById("secDesignOverlay").addEventListener("click", (e) => {
+    if (e.target.id === "secDesignOverlay") e.target.hidden = true;
+  });
 }
 
 export function scrollToSection(key) {

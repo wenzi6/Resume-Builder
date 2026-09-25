@@ -134,6 +134,22 @@ def restore_backup(name: str) -> bool:
     return True
 
 
+def delete_backup(name: str) -> bool:
+    """删除指定备份（防路径穿越）。"""
+    if not name or "/" in name or "\\" in name or ".." in name:
+        return False
+    if not name.startswith("resumes-") or not name.endswith(".db"):
+        return False
+    p = _backup_dir() / name
+    if not p.is_file():
+        return False
+    try:
+        p.unlink()
+        return True
+    except OSError:
+        return False
+
+
 # ---------------------------------------------------------------- 全量导出 / 导入
 
 

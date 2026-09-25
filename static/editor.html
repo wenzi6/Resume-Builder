@@ -256,6 +256,8 @@
         <button class="ai-tab active" type="button" data-ai-tab="generate" data-i18n="ai.tabGenerate">生成简历</button>
         <button class="ai-tab" type="button" data-ai-tab="suggest" data-i18n="ai.tabSuggest">修改建议</button>
         <button class="ai-tab" type="button" data-ai-tab="jd" data-i18n="ai.tabJd">JD 定制</button>
+        <button class="ai-tab" type="button" data-ai-tab="match">JD 匹配</button>
+        <button class="ai-tab" type="button" data-ai-tab="chat">对话</button>
         <button class="ai-tab" type="button" data-ai-tab="settings" data-i18n="ai.tabSettings">设置</button>
       </nav>
 
@@ -326,6 +328,31 @@
           <div class="ai-result" id="aiJdResult" hidden></div>
         </section>
 
+        <!-- JD 匹配（纯本地，无需 AI） -->
+        <section class="ai-pane" id="aiMatch" hidden>
+          <p class="ai-hint">纯本地分析（不调用 AI、离线可用）：从 JD 提取硬技能 / 学历 / 职位 / 软技能关键词，按权重与简历比对，给出匹配率与缺失项。</p>
+          <div class="field-group">
+            <label class="field-label" for="aiMatchJd">JD（职位描述）</label>
+            <textarea class="field-textarea" id="aiMatchJd" rows="6" placeholder="粘贴招聘网站上的职位描述…"></textarea>
+          </div>
+          <div class="ai-actions">
+            <button class="btn btn-primary" type="button" id="btnAiMatch">开始匹配</button>
+            <button class="btn btn-ghost" type="button" id="btnMatchFillFromJd" title="把「JD 定制」里的 JD 复制过来">沿用 JD</button>
+            <span class="ai-status" id="aiMatchStatus"></span>
+          </div>
+          <div class="ai-result" id="aiMatchResult" hidden></div>
+        </section>
+
+        <!-- 对话 -->
+        <section class="ai-pane" id="aiChat" hidden>
+          <p class="ai-hint">对话式迭代：让 AI 按你的要求持续修改简历内容（如「把第一条 bullet 改短」「补充量化数据」）。回复可直接替换到表单。</p>
+          <div class="chat-log" id="chatLog"></div>
+          <div class="chat-input-row">
+            <textarea class="field-textarea" id="chatInput" rows="2" placeholder="输入修改要求，Enter 发送 / Shift+Enter 换行"></textarea>
+            <button class="btn btn-primary" type="button" id="btnChatSend">发送</button>
+          </div>
+        </section>
+
         <!-- 设置 -->
         <section class="ai-pane" id="aiSettings" hidden>
           <p class="ai-hint" data-i18n="ai.setHint">支持任何 OpenAI 兼容服务（DeepSeek / Kimi / 通义千问 / OpenAI / Ollama 等）。Key 只保存在本机 data/llm_config.json，不会上传到除服务商以外的任何地方。</p>
@@ -368,6 +395,50 @@
         </section>
       </div>
     </div>
+  </section>
+</div>
+
+<!-- ============ 区块排版设置 ============ -->
+<div class="overlay" id="secDesignOverlay" hidden>
+  <section class="dialog dialog-sm" role="dialog" aria-modal="true" aria-labelledby="secDesignTitle">
+    <header class="dialog-head">
+      <strong id="secDesignTitle">区块排版</strong>
+      <button class="icon-btn" type="button" id="btnCloseSecDesign" aria-label="关闭">✕</button>
+    </header>
+    <div class="dialog-body">
+      <div class="field-group">
+        <label class="field-label" for="secCols">条目排列</label>
+        <select class="field-input" id="secCols">
+          <option value="1">单列</option>
+          <option value="2">双列（技能 / 短条目更紧凑）</option>
+        </select>
+      </div>
+      <label class="check-row">
+        <input type="checkbox" id="secHideTitle">
+        <span>隐藏区块标题</span>
+      </label>
+    </div>
+    <footer class="dialog-foot dialog-actions-end">
+      <button class="btn btn-primary btn-sm" type="button" id="btnSaveSecDesign">保存</button>
+    </footer>
+  </section>
+</div>
+
+<!-- ============ AI 批量润色 ============ -->
+<div class="overlay" id="batchOverlay" hidden>
+  <section class="dialog dialog-lg" role="dialog" aria-modal="true" aria-labelledby="batchTitle">
+    <header class="dialog-head">
+      <strong id="batchTitle">✨ 批量润色</strong>
+      <button class="icon-btn" type="button" id="btnCloseBatch" aria-label="关闭">✕</button>
+    </header>
+    <div class="dialog-body">
+      <p class="ai-hint" id="batchHint"></p>
+      <div id="batchList"></div>
+    </div>
+    <footer class="dialog-foot dialog-actions-end">
+      <button class="btn btn-ghost btn-sm" type="button" id="btnCancelBatch">取消</button>
+      <button class="btn btn-primary btn-sm" type="button" id="btnApplyBatch">全部应用</button>
+    </footer>
   </section>
 </div>
 

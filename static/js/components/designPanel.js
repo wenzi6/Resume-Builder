@@ -79,6 +79,26 @@ export function renderDesignPanel(container) {
   fontRow.appendChild(fontSeg);
   gFont.appendChild(fontRow);
 
+  // 标题字体（独立于正文）
+  const headRow = el("div", "design-row");
+  const headLab = el("div", "design-label");
+  headLab.appendChild(el("span", null, "标题字体"));
+  headRow.appendChild(headLab);
+  const headSeg = el("div", "seg");
+  for (const [v, label] of [["sans", "黑体"], ["serif", "宋体"]]) {
+    const b = el("button", (design.headFont || "sans") === v ? "active" : "", label);
+    b.type = "button";
+    b.dataset.headFont = v;
+    b.addEventListener("click", () => {
+      store.doc.design.headFont = v;
+      store.touch();
+      syncDesignValues();
+    });
+    headSeg.appendChild(b);
+  }
+  headRow.appendChild(headSeg);
+  gFont.appendChild(headRow);
+
   // 用户上传的自有字体
   const userWrap = el("div", "design-row");
   userWrap.id = "userFontList";
@@ -327,6 +347,9 @@ export function syncDesignValues() {
   }
   document.querySelectorAll("[data-font]").forEach((b) => {
     b.classList.toggle("active", b.dataset.font === design.fontFamily);
+  });
+  document.querySelectorAll("[data-head-font]").forEach((b) => {
+    b.classList.toggle("active", b.dataset.headFont === (design.headFont || "sans"));
   });
   document.querySelectorAll("[data-dateAlign]").forEach((b) => {
     b.classList.toggle("active", b.dataset.dateAlign === design.dateAlign);

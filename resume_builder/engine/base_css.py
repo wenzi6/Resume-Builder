@@ -159,6 +159,11 @@ h1, h2, h3, h4, p, figure {{ margin: 0; }}
 
 /* ============ 技能 ============ */
 .rskills {{ display: block; }}
+.rskills-cols {{
+  column-count: 2;
+  column-gap: 4px 18px;
+}}
+.rskills-cols .rskill {{ break-inside: avoid; }}
 .rskill {{
   display: flex;
   align-items: center;

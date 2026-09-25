@@ -7,7 +7,7 @@ import { store } from "./store.js";
 import { api } from "./api.js";
 import { t, getLang, setLang, applyI18n } from "./i18n.js";
 import { toast, toastSuccess, toastError } from "./components/toast.js";
-import { renderForm, scrollToSection } from "./components/form.js";
+import { renderForm, scrollToSection, bindSectionDesign } from "./components/form.js";
 import {
   renderSectionTree,
   renderDocList,
@@ -60,6 +60,7 @@ async function boot() {
   bindStoreEvents();
   bindViewToggle();
   bindAiPanel();
+  bindSectionDesign();
   bindLangToggle();
 
   try {
@@ -254,6 +255,14 @@ async function postDownloadName(url, body, filename) {
 
 /* ================= 模板选择 ================= */
 
+function makeSwatch(t) {
+  const sw = document.createElement("span");
+  sw.className = "tpl-swatch";
+  sw.style.background = t.defaultDesign?.accent || "#0f766e";
+  sw.textContent = (t.name || "?").slice(0, 1);
+  return sw;
+}
+
 function renderTemplatePicker() {
   const menu = document.getElementById("templateMenu");
   menu.textContent = "";
@@ -264,11 +273,15 @@ function renderTemplatePicker() {
     opt.setAttribute("role", "option");
     opt.dataset.id = t.id;
 
-    const sw = document.createElement("span");
-    sw.className = "tpl-swatch";
-    sw.style.background = t.defaultDesign?.accent || "#0f766e";
-    sw.textContent = (t.name || "?").slice(0, 1);
-    opt.appendChild(sw);
+    const img = document.createElement("img");
+    img.className = "tpl-preview";
+    img.src = `/api/v1/templates/${t.id}/preview.png`;
+    img.alt = t.name;
+    img.loading = "lazy";
+    img.onerror = () => {
+      img.replaceWith(makeSwatch(t));
+    };
+    opt.appendChild(img);
 
     const meta = document.createElement("span");
     meta.className = "tpl-meta";

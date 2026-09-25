@@ -27,3 +27,11 @@ def restore_backup():
     if not bundle.restore_backup(name):
         return jsonify({"error": "备份不存在"}), 404
     return jsonify({"success": True})
+
+
+@bp.delete("/<name>")
+def delete_backup(name: str):
+    """删除指定备份（防路径穿越）。"""
+    if not bundle.delete_backup(name):
+        return jsonify({"error": "备份不存在"}), 404
+    return jsonify({"success": True, "backups": bundle.list_backups()})

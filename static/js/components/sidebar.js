@@ -538,6 +538,22 @@ export async function renderBackupList() {
         }
       });
       head.appendChild(btn);
+      const del = el("button", "sec-act danger", "✕");
+      del.type = "button";
+      del.title = "删除此备份";
+      del.addEventListener("click", async () => {
+        const ok = await confirmDialog(`确定删除 ${b.createdText} 的备份？删除后不可恢复。`);
+        if (!ok) return;
+        try {
+          const resp = await fetch(`/api/v1/backups/${encodeURIComponent(b.name)}`, { method: "DELETE" });
+          if (!resp.ok) throw new Error((await resp.json()).error || `HTTP ${resp.status}`);
+          renderBackupList();
+          toastSuccess("备份已删除");
+        } catch (e) {
+          toastError("删除失败：" + e.message);
+        }
+      });
+      head.appendChild(del);
       li.appendChild(head);
       list.appendChild(li);
     }

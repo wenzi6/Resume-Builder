@@ -176,3 +176,34 @@ def test_api_backups_endpoints(client, two_docs):
 
     r = client.post("/api/v1/backups/restore", json={"name": "nope.db"})
     assert r.status_code == 404
+
+
+# ---------------- 备份删除 ----------------
+
+
+def test_delete_backup(client, two_docs):
+    bundle.backup_db(force=True)
+    name = bundle.list_backups()[0]["name"]
+    r = client.delete(f"/api/v1/backups/{name}")
+    assert r.status_code == 200
+    assert all(b["name"] != name for b in client.get("/api/v1/backups").get_json()["backups"])
+
+
+def test_delete_backup_traversal(client):
+    assert client.delete("/api/v1/backups/..%2F..%2Fconfig.py").status_code == 404
+    assert client.delete("/api/v1/backups/nonexistent.db").status_code == 404
+
+
+def test_delete_backup_keeps_others(client, two_docs):
+    import time
+
+    bundle.backup_db(force=True)
+    time.sleep(1.1)
+    bundle.backup_db(force=True)
+    backups = bundle.list_backups()
+    assert len(backups) >= 2
+    victim = backups[-1]["name"]
+    keeper = backups[0]["name"]
+    client.delete(f"/api/v1/backups/{victim}")
+    names = [b["name"] for b in client.get("/api/v1/backups").get_json()["backups"]]
+    assert victim not in names and keeper in names

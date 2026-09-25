@@ -561,3 +561,94 @@ def test_api_stream_generate(client, monkeypatch):
     body = r.get_data(as_text=True)
     assert '"done": true' in body
     assert "流式生成" in body
+
+
+# ---------------- 批量润色 ----------------
+
+def test_polish_batch(monkeypatch):
+    _configured()
+    reply = json.dumps(["重构核心产品前端架构，首屏 LCP 降至 1.8s",
+                        "建设组件库 30+ 个，需求交付效率提升 40%"], ensure_ascii=False)
+    _mock_raw(monkeypatch, {"choices": [{"message": {"content": reply}}]})
+    r = llm.polish_batch(["负责架构设计", "建设组件库"], context="工作经历")
+    assert r["results"][0].startswith("重构")
+    assert len(r["results"]) == 2
+
+
+def test_polish_batch_pads_missing(monkeypatch):
+    """AI 少返回时用原文补齐，数量对齐。"""
+    _configured()
+    _mock_raw(monkeypatch, {"choices": [{"message": {"content": '[\"只有一条\"]'}}]})
+    r = llm.polish_batch(["第一条", "第二条"])
+    assert r["results"] == ["只有一条", "第二条"]
+
+
+def test_polish_batch_empty():
+    import pytest
+
+    with pytest.raises(ValueError, match="没有需要润色"):
+        llm.polish_batch([])
+
+
+def test_polish_batch_too_many():
+    import pytest
+
+    with pytest.raises(ValueError, match="最多"):
+        llm.polish_batch(["x"] * 13)
+
+
+def test_api_polish_batch(client, monkeypatch):
+    _configured()
+    reply = json.dumps(["改写一", "改写二"], ensure_ascii=False)
+    _mock_raw(monkeypatch, {"choices": [{"message": {"content": reply}}]})
+    r = client.post("/api/v1/llm/polish-batch", json={"items": ["原文一", "原文二"], "context": "项目"})
+    assert r.status_code == 200
+    assert r.get_json()["results"] == ["改写一", "改写二"]
+
+
+def test_api_polish_batch_requires_items(client):
+    r = client.post("/api/v1/llm/polish-batch", json={})
+    assert r.status_code == 400
+
+
+# ---------------- 对话 ----------------
+
+def test_api_chat_stream(client, monkeypatch):
+    _configured()
+    _mock_stream(monkeypatch, [
+        'data: {"choices":[{"delta":{"content":"可以"}}]}',
+        'data: {"choices":[{"delta":{"content":"修改"}}]}',
+        "data: [DONE]",
+    ])
+    r = client.post("/api/v1/llm/chat", json={"messages": [{"role": "user", "content": "改短一点"}]})
+    assert r.status_code == 200
+    assert "text/event-stream" in r.content_type
+    body = r.get_data(as_text=True)
+    assert '"chunk": "可以"' in body
+    assert '"done": true' in body
+
+
+def test_api_chat_sanitizes_roles(client, monkeypatch):
+    """非法角色被归一为 user，超长历史截断。"""
+    _configured()
+    seen = {}
+    orig = llm.chat_stream
+
+    def spy(messages, *a, **kw):
+        seen["messages"] = messages
+        return orig(messages, *a, **kw)
+
+    monkeypatch.setattr(llm, "chat_stream", spy)
+    _mock_stream(monkeypatch, ['data: {"choices":[{"delta":{"content":"ok"}}]}', "data: [DONE]"])
+    msgs = [{"role": "system", "content": "x"}, {"role": "user", "content": "y"}] + [
+        {"role": "user", "content": f"m{i}"} for i in range(30)
+    ]
+    client.post("/api/v1/llm/chat", json={"messages": msgs})
+    roles = [m["role"] for m in seen["messages"]]
+    assert "system" not in roles
+    assert len(seen["messages"]) <= 20
+
+
+def test_api_chat_requires_messages(client):
+    r = client.post("/api/v1/llm/chat", json={"messages": []})
+    assert r.status_code == 400

@@ -43,6 +43,13 @@ function cap(s) {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
+function el(tag, className, text) {
+  const e = document.createElement(tag);
+  if (className) e.className = className;
+  if (text != null) e.textContent = text;
+  return e;
+}
+
 function setStatus(elId, msg, kind = "") {
   const el = document.getElementById(elId);
   if (!el) return;
@@ -222,6 +229,62 @@ async function streamLlm(capability, params, handlers = {}) {
         }
         if (msg.chunk) handlers.onChunk?.(msg.chunk);
         else if (msg.done) { handlers.onDone?.(msg.result); return; }
+        else if (msg.error) { handlers.onError?.(msg.error); return; }
+      }
+    }
+    handlers.onError?.("连接中断");
+  } catch (e) {
+    handlers.onError?.(e.message);
+  }
+}
+
+/** 对话专用流式（/llm/chat，messages 直接透传）。 */
+async function streamChat(messages, handlers = {}) {
+  let resp;
+  try {
+    resp = await fetch("/api/v1/llm/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages }),
+    });
+  } catch (e) {
+    handlers.onError?.("网络错误：" + e.message);
+    return;
+  }
+  if (!resp.ok || !resp.body) {
+    let msg = "HTTP " + resp.status;
+    try {
+      msg = (await resp.json()).error || msg;
+    } catch { /* ignore */ }
+    handlers.onError?.(msg);
+    return;
+  }
+  await readSseStream(resp, handlers);
+}
+
+/** 通用 SSE 读取：解析 data: 行，分发 chunk / done / error。 */
+async function readSseStream(resp, handlers) {
+  const reader = resp.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let idx;
+      while ((idx = buf.indexOf("\n\n")) >= 0) {
+        const line = buf.slice(0, idx).trim();
+        buf = buf.slice(idx + 2);
+        if (!line.startsWith("data:")) continue;
+        let msg;
+        try {
+          msg = JSON.parse(line.slice(5));
+        } catch {
+          continue;
+        }
+        if (msg.chunk) handlers.onChunk?.(msg.chunk);
+        else if (msg.done) { handlers.onDone?.(msg.result ?? msg.text); return; }
         else if (msg.error) { handlers.onError?.(msg.error); return; }
       }
     }
@@ -599,6 +662,286 @@ function syncInput(path, value) {
   input.dispatchEvent(new Event("input", { bubbles: true }));
 }
 
+/* ---------------- 批量润色 ---------------- */
+
+let batchCtx = null;   // {section, targets: [{path, original}]}
+
+/** 收集区块内所有 list 条目，打开批量润色弹窗。 */
+export function openBatchPolish(section) {
+  const doc = store.doc;
+  if (!doc) return;
+  const targets = [];
+  const key = section.key;
+
+  const collectFrom = (arr, basePath) => {
+    (arr || []).forEach((v, i) => {
+      const t = String(v || "").trim();
+      if (t) targets.push({ path: `${basePath}.${i}`, original: t });
+    });
+  };
+
+  if (section.type === "array") {
+    const items = doc.content?.[key] || [];
+    const listField = (section.fields || []).find((f) => f.type === "list");
+    const fk = listField?.key || "descriptions";
+    items.forEach((item, i) => {
+      if (Array.isArray(item?.[fk])) collectFrom(item[fk], `content.${key}.${i}.${fk}`);
+    });
+  } else if (section.type === "skills") {
+    collectFrom(doc.content?.skills?.descriptions, `content.skills.descriptions`);
+  } else {
+    collectFrom(contentUtil.readList(doc.content?.[key]), `content.${key}.descriptions`);
+  }
+
+  if (!targets.length) {
+    toastError("该区块没有可润色的条目");
+    return;
+  }
+  if (targets.length > 12) {
+    toastError("单次最多润色 12 条，请分批");
+    return;
+  }
+  batchCtx = { section, targets, results: null };
+  document.getElementById("batchHint").textContent =
+    `将按 Google XYZ 公式润色「${section.title}」的 ${targets.length} 条内容（不编造数据）。`;
+  document.getElementById("batchList").textContent = "";
+  document.getElementById("batchOverlay").hidden = false;
+  runBatchPolish();
+}
+
+async function runBatchPolish() {
+  if (!batchCtx) return;
+  if (!aiCfg) aiCfg = await api.getJson("/api/v1/llm/config");
+  if (!aiCfg.configured) {
+    document.getElementById("batchOverlay").hidden = true;
+    openAiPanel("settings");
+    setStatus("aiConfigStatus", "请先完成 AI 配置", "error");
+    return;
+  }
+  const btn = document.getElementById("btnApplyBatch");
+  busy(btn, "润色中…");
+  document.getElementById("batchList").textContent = "";
+  const loading = el("div", "ai-status", "AI 正在批量改写，请稍候…");
+  document.getElementById("batchList").appendChild(loading);
+  try {
+    const r = await api.postJson("/api/v1/llm/polish-batch", {
+      items: batchCtx.targets.map((t) => t.original),
+      context: batchCtx.section.title,
+    });
+    batchCtx.results = r.results;
+    renderBatchPreview(r.results);
+  } catch (e) {
+    document.getElementById("batchList").textContent = "";
+    toastError("批量润色失败：" + e.message);
+  } finally {
+    unbusy(btn);
+  }
+}
+
+function renderBatchPreview(results) {
+  const box = document.getElementById("batchList");
+  box.textContent = "";
+  batchCtx.targets.forEach((t, i) => {
+    const card = el("div", "ai-card");
+    const diff = el("div", "ai-diff");
+    const oldD = el("div", "old", t.original);
+    const newD = el("div", "new", results[i] || t.original);
+    diff.appendChild(oldD);
+    diff.appendChild(newD);
+    card.appendChild(diff);
+    box.appendChild(card);
+  });
+}
+
+function applyBatchPolish() {
+  if (!batchCtx?.results) return;
+  let n = 0;
+  batchCtx.targets.forEach((t, i) => {
+    const v = batchCtx.results[i];
+    if (!v) return;
+    const keys = t.path.split(".");
+    let o = store.doc;
+    for (let j = 0; j < keys.length - 1; j++) o = o?.[keys[j]];
+    if (o && keys[keys.length - 1] in o) {
+      o[keys[keys.length - 1]] = v;
+      n++;
+    }
+  });
+  if (n) {
+    store.touch();
+    // 同步表单输入框
+    for (const t of batchCtx.targets) {
+      const input = document.querySelector(`[data-path="${CSS.escape(t.path)}"]`);
+      if (input) {
+        input.value = store.doc && getByPathForBatch(t.path);
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+    }
+  }
+  document.getElementById("batchOverlay").hidden = true;
+  toastSuccess(`已应用 ${n} 条润色`);
+}
+
+function getByPathForBatch(path) {
+  const keys = path.split(".");
+  let o = store.doc;
+  for (const k of keys) o = o?.[k];
+  return o == null ? "" : String(o);
+}
+
+/* ---------------- JD 匹配（纯本地） ---------------- */
+
+const CAT_LABEL = { skill: "硬技能", education: "学历", position: "职位", soft: "软技能" };
+
+async function runMatch() {
+  if (!store.doc) return;
+  const jd = document.getElementById("aiMatchJd").value.trim();
+  if (!jd) {
+    setStatus("aiMatchStatus", "请先粘贴 JD", "error");
+    return;
+  }
+  const btn = document.getElementById("btnAiMatch");
+  busy(btn, "分析中…");
+  setStatus("aiMatchStatus", "");
+  try {
+    const r = await api.postJson("/api/v1/analyze", { document: store.doc, jd });
+    renderMatch(r);
+    setStatus("aiMatchStatus", `匹配率 ${r.score}%`, r.score >= 75 ? "ok" : "error");
+  } catch (e) {
+    setStatus("aiMatchStatus", e.message, "error");
+  } finally {
+    unbusy(btn);
+  }
+}
+
+function renderMatch(r) {
+  const box = document.getElementById("aiMatchResult");
+  box.textContent = "";
+
+  const head = el("div", "ai-card");
+  head.style.background = r.score >= 75 ? "var(--accent-soft)" : r.score >= 60 ? "var(--warn-soft)" : "var(--danger-soft)";
+  const score = el("div", null);
+  score.style.fontSize = "26px";
+  score.style.fontWeight = "800";
+  score.style.color = r.score >= 75 ? "var(--ok)" : r.score >= 60 ? "var(--warn)" : "var(--danger)";
+  score.textContent = `${r.score}%`;
+  head.appendChild(score);
+  const sub = el("div", null);
+  sub.style.fontSize = "12px";
+  sub.style.color = "var(--muted)";
+  sub.textContent = `匹配 ${r.matchedCount} 项 · 缺失 ${r.missingCount} 项`;
+  head.appendChild(sub);
+  box.appendChild(head);
+
+  for (const s of r.suggestions || []) {
+    const p = el("p");
+    p.style.fontSize = "12px";
+    p.style.color = "var(--text-2)";
+    p.style.lineHeight = "1.7";
+    p.textContent = "• " + s;
+    box.appendChild(p);
+  }
+
+  if (r.missing?.length) {
+    const t = el("div", "design-group-title");
+    t.style.marginTop = "12px";
+    t.textContent = "缺失关键词（按权重排序）";
+    box.appendChild(t);
+    const row = el("div", "ai-missing");
+    for (const m of r.missing) {
+      const tag = el("span", "rtag", m.keyword);
+      tag.title = `${CAT_LABEL[m.category] || m.category} · 权重 ${m.weight}`;
+      row.appendChild(tag);
+    }
+    box.appendChild(row);
+  }
+  box.hidden = false;
+}
+
+/* ---------------- 对话式迭代 ---------------- */
+
+let chatMessages = [];
+let chatStreaming = false;
+
+async function sendChat() {
+  if (!ensureConfigured()) return;
+  const input = document.getElementById("chatInput");
+  const text = input.value.trim();
+  if (!text || chatStreaming) return;
+
+  if (!chatMessages.length) {
+    // 首条消息：把当前简历作为上下文交给 AI
+    chatMessages.push({
+      role: "user",
+      content: "这是我的简历数据（JSON）：\n" + JSON.stringify(store.doc.content) +
+        "\n\n后续我会让你修改它。修改时请直接给出修改后的完整内容或指定条目的新文本。",
+    });
+    // 该上下文消息不展示
+  }
+  chatMessages.push({ role: "user", content: text });
+  input.value = "";
+  chatStreaming = true;
+  renderChatLog();
+  const bubble = appendChatBubble("assistant", "");
+  let acc = "";
+
+  await streamChat(chatMessages, {
+    onChunk: (c) => {
+      acc += c;
+      bubble.textContent = acc;
+      bubble.parentElement.scrollIntoView({ block: "end" });
+    },
+    onDone: (r) => {
+      const full = r.text || acc;
+      chatMessages.push({ role: "assistant", content: full });
+      bubble.textContent = full;
+      addChatActions(bubble.parentElement, full);
+      chatStreaming = false;
+    },
+    onError: (msg) => {
+      bubble.textContent = "⚠️ " + msg;
+      chatStreaming = false;
+    },
+  });
+}
+
+function renderChatLog() {
+  const log = document.getElementById("chatLog");
+  log.textContent = "";
+  // 跳过第一条上下文消息
+  for (const m of chatMessages.slice(1)) {
+    appendChatBubble(m.role, m.content, true);
+  }
+  log.scrollTop = log.scrollHeight;
+}
+
+function appendChatBubble(role, text, withActions = false) {
+  const log = document.getElementById("chatLog");
+  const wrap = el("div", "chat-msg " + role);
+  const bubble = el("div", "chat-bubble", text);
+  wrap.appendChild(bubble);
+  if (withActions && role === "assistant") addChatActions(wrap, text);
+  log.appendChild(wrap);
+  log.scrollTop = log.scrollHeight;
+  return bubble;
+}
+
+function addChatActions(wrap, text) {
+  const acts = el("div", "chat-acts");
+  const copy = el("button", "btn btn-sm btn-ghost", "复制");
+  copy.type = "button";
+  copy.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      toastSuccess("已复制");
+    } catch {
+      toast("复制失败", "error");
+    }
+  });
+  acts.appendChild(copy);
+  wrap.appendChild(acts);
+}
+
 /* ---------------- 绑定 ---------------- */
 
 export function bindAiPanel() {
@@ -626,6 +969,21 @@ export function bindAiPanel() {
   document.getElementById("btnAiGenerate").addEventListener("click", runGenerate);
   document.getElementById("btnAiSuggest").addEventListener("click", runSuggest);
   document.getElementById("btnAiJd").addEventListener("click", runTailor);
+  document.getElementById("btnAiMatch").addEventListener("click", runMatch);
+  document.getElementById("btnMatchFillFromJd").addEventListener("click", () => {
+    const v = document.getElementById("aiJdText").value.trim();
+    if (v) document.getElementById("aiMatchJd").value = v;
+  });
+  document.getElementById("btnChatSend").addEventListener("click", sendChat);
+  document.getElementById("btnApplyBatch").addEventListener("click", applyBatchPolish);
+  document.getElementById("btnCloseBatch").addEventListener("click", () => (document.getElementById("batchOverlay").hidden = true));
+  document.getElementById("btnCancelBatch").addEventListener("click", () => (document.getElementById("batchOverlay").hidden = true));
+  document.getElementById("chatInput").addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      sendChat();
+    }
+  });
 
   document.getElementById("btnPolishApply").addEventListener("click", applyPolish);
   document.getElementById("btnPolishRetry").addEventListener("click", requestPolish);

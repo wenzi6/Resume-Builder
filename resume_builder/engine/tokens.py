@@ -102,7 +102,13 @@ def build_root_css(design: dict[str, Any] | None) -> str:
     if d["fontFamily"] not in ("sans", "serif"):
         # 用户上传的自有字体：家族名直接作为正文字体栈（回退到内置黑体）
         body_font = f"'{d['fontFamily']}', 'Noto Sans SC', 'Microsoft YaHei', sans-serif"
-    head_font = FONT_SANS_STACK  # 标题始终用黑体，保证层级清晰
+    # 标题字体独立可配（默认黑体，保证层级清晰）
+    if d.get("headFont") == "serif":
+        head_font = FONT_SERIF_STACK
+    elif d.get("headFont") and d["headFont"] not in ("sans", "serif"):
+        head_font = f"'{d['headFont']}', 'Noto Sans SC', 'Microsoft YaHei', sans-serif"
+    else:
+        head_font = FONT_SANS_STACK
 
     vars = {
         "--r-font-body": body_font,

@@ -59,6 +59,71 @@ def polish():
     return jsonify(result)
 
 
+@bp.post("/polish-batch")
+def polish_batch():
+    """批量润色：一次改写多条 bullet。body: {items: [...], context}"""
+    body = _body()
+    items = body.get("items")
+    if not isinstance(items, list):
+        return jsonify({"error": "请提供 items 数组"}), 400
+    try:
+        result = llm.polish_batch(items, str(body.get("context") or ""))
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:  # noqa: BLE001
+        return jsonify({"error": str(e)}), 502
+    return jsonify(result)
+
+
+@bp.post("/chat")
+def chat_ep():
+    """对话式迭代（SSE 流式）。body: {messages: [{role, content}, ...]}"""
+    import queue
+    import threading
+
+    from flask import Response, stream_with_context
+
+    body = _body()
+    messages = body.get("messages")
+    if not isinstance(messages, list) or not messages:
+        return jsonify({"error": "请提供 messages 数组"}), 400
+    # 只保留合法角色，防 prompt 注入结构混乱
+    clean = [
+        {"role": m.get("role") if m.get("role") in ("user", "assistant") else "user",
+         "content": str(m.get("content") or "")[:2000]}
+        for m in messages[-20:] if isinstance(m, dict)
+    ]
+    if not clean:
+        return jsonify({"error": "messages 为空"}), 400
+
+    def generate():
+        q: queue.Queue = queue.Queue()
+
+        def worker():
+            try:
+                parts = []
+                for chunk in llm.chat_stream(clean, temperature=0.7, max_tokens=2000):
+                    parts.append(chunk)
+                    q.put(("chunk", chunk))
+                q.put(("done", "".join(parts)))
+            except Exception as e:  # noqa: BLE001
+                q.put(("error", str(e)))
+
+        threading.Thread(target=worker, daemon=True).start()
+        while True:
+            kind, payload = q.get()
+            if kind == "chunk":
+                yield f"data: {json.dumps({'chunk': payload}, ensure_ascii=False)}\n\n"
+            elif kind == "done":
+                yield f"data: {json.dumps({'done': True, 'text': payload}, ensure_ascii=False)}\n\n"
+                return
+            else:
+                yield f"data: {json.dumps({'error': payload}, ensure_ascii=False)}\n\n"
+                return
+
+    return Response(stream_with_context(generate()), mimetype="text/event-stream")
+
+
 @bp.post("/generate")
 def generate():
     body = _body()

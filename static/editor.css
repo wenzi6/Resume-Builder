@@ -207,6 +207,16 @@ button { font-family: inherit; }
 }
 .tpl-option:hover { background: var(--panel-2); }
 .tpl-option.active { background: var(--accent-soft); }
+.tpl-preview {
+  width: 44px;
+  height: 62px;
+  object-fit: cover;
+  object-position: top;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  flex: none;
+  background: #fff;
+}
 .tpl-swatch {
   width: 26px; height: 26px;
   border-radius: 5px;
@@ -1030,6 +1040,38 @@ input[type="range"]::-moz-range-thumb {
 }
 .ai-field-btn:hover { opacity: 1; background: #ede9fe; }
 .list-row .ai-field-btn { align-self: flex-start; margin-top: 3px; }
+
+/* ============ 对话 ============ */
+.chat-log {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+  padding: 10px;
+  min-height: 200px;
+  max-height: 300px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.chat-msg { display: flex; }
+.chat-msg.user { justify-content: flex-end; }
+.chat-msg.assistant { justify-content: flex-start; }
+.chat-bubble {
+  max-width: 85%;
+  padding: 7px 11px;
+  border-radius: 10px;
+  font-size: 12px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.chat-msg.user .chat-bubble { background: var(--accent); color: #fff; border-bottom-right-radius: 3px; }
+.chat-msg.assistant .chat-bubble { background: #fff; border: 1px solid var(--border); color: var(--text-2); border-bottom-left-radius: 3px; }
+.chat-acts { margin-top: 3px; }
+.chat-input-row { display: flex; gap: 8px; align-items: flex-end; }
+.chat-input-row .field-textarea { flex: 1; }
 
 /* 滚动条 */
 ::-webkit-scrollbar { width: 10px; height: 10px; }
