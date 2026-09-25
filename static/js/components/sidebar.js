@@ -332,6 +332,32 @@ function docItem(d) {
   }
   const acts = el("span", "doc-item-acts");
 
+  // PDF 对照导入文档：用当前解析器重新解析（解析规则升级后刷新旧数据）
+  if (d.hasSourcePdf) {
+    const re = el("button", "sec-act", "↻");
+    re.type = "button";
+    re.title = "重新解析原始 PDF（用最新解析规则刷新字段）";
+    re.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const ok = await confirmDialog(
+        `用最新解析规则重新解析「${d.title || "未命名简历"}」？\n` +
+        "会覆盖当前各字段内容（自动先备份一次），原始 PDF 不变。");
+      if (!ok) return;
+      re.disabled = true;
+      try {
+        const { document: doc } = await api.reparseImport(d.id);
+        store.setDocument(doc);
+        renderDocList(document.getElementById("docList"));
+        toastSuccess("已按最新规则重新解析");
+      } catch (err) {
+        toastError(err.message);
+      } finally {
+        re.disabled = false;
+      }
+    });
+    acts.appendChild(re);
+  }
+
   const hist = el("button", "sec-act", "⏱");
   hist.type = "button";
   hist.title = "历史版本";

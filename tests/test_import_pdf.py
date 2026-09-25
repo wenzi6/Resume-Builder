@@ -150,3 +150,54 @@ def test_norm_text_maps_cjk_radical_supplement():
     assert pdf_import.norm_text("⻓沙悦智⼈⼯智能") == "长沙悦智人工智能"
     assert pdf_import.norm_text("⻢博士") == "马博士"
     assert pdf_import.norm_text("⻛险响应") == "风险响应"
+
+
+# ---------------- 重新解析（解析规则升级后刷新旧文档） ----------------
+
+def test_reparse_refreshes_old_import(client, sample_pdfs):
+    """旧文档（旧解析规则产物）可一键用当前解析器刷新。"""
+    r = client.post(
+        "/api/v1/import/pdf",
+        data={"file": (io.BytesIO(sample_pdfs["classic"]), "old.pdf")},
+        content_type="multipart/form-data",
+    )
+    doc = r.get_json()["document"]
+    doc_id = doc["id"]
+    try:
+        # 模拟「旧数据」：把内容改坏
+        doc["content"]["workExperiences"] = [{"company": "错的数据", "jobTitle": "",
+                                              "date": "", "descriptions": ["x"]}]
+        client.put(f"/api/v1/documents/{doc_id}", json={"document": doc})
+
+        r2 = client.post("/api/v1/import/reparse", json={"id": doc_id})
+        assert r2.status_code == 200, r2.get_json()
+        fresh = r2.get_json()["document"]
+        comps = [w.get("company") for w in fresh["content"]["workExperiences"]]
+        assert "错的数据" not in comps
+        assert any(comps), comps
+        # sourceContent 基线同步刷新（原格式导出的 diff 从新基线算）
+        assert fresh["sourceContent"]["workExperiences"] == fresh["content"]["workExperiences"]
+        # 原始 PDF 仍在
+        assert fresh.get("sourcePdf")
+    finally:
+        client.delete(f"/api/v1/documents/{doc_id}")
+
+
+def test_reparse_rejects_non_pdf_doc(client):
+    """非 PDF 导入文档没有可重新解析的原始文件。"""
+    from resume_builder.sample import sample_general
+
+    r = client.post("/api/v1/documents", json={"document": sample_general()})
+    assert r.status_code in (200, 201), r.get_json()
+    doc_id = r.get_json()["document"]["id"]
+    try:
+        r2 = client.post("/api/v1/import/reparse", json={"id": doc_id})
+        assert r2.status_code == 400
+        assert "不是 PDF" in r2.get_json()["error"]
+    finally:
+        client.delete(f"/api/v1/documents/{doc_id}")
+
+
+def test_reparse_unknown_doc(client):
+    r = client.post("/api/v1/import/reparse", json={"id": "nope"})
+    assert r.status_code == 404

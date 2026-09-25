@@ -37,6 +37,52 @@ def import_json():
     return jsonify({"document": doc})
 
 
+@bp.post("/import/reparse")
+def reparse_pdf():
+    """用当前解析器重新解析已导入文档的原始 PDF。
+
+    解析规则升级后，旧文档仍是旧数据——此接口让它们一键刷新，
+    不必删了重导（重导会丢掉当时的其他编辑）。
+    """
+    import copy
+
+    from ..services import bundle, documents as docs_svc
+
+    body = request.get_json(silent=True) or {}
+    doc_id = str(body.get("id") or "")
+    doc = docs_svc.get_document(doc_id)
+    if doc is None:
+        return jsonify({"error": "文档不存在"}), 404
+    rel = doc.get("sourcePdf")
+    if not rel or not _safe_rel(rel):
+        return jsonify({"error": "该文档不是 PDF 对照导入，没有可重新解析的原始文件"}), 400
+    src = DATA_DIR / rel
+    if not src.is_file():
+        return jsonify({"error": "原始 PDF 文件已被清理，无法重新解析"}), 404
+    try:
+        with src.open("rb") as fh:
+            extracted = pdf_import.extract_pdf(fh)
+        content = pdf_import.build_document_from_pdf(extracted)
+    except Exception as e:  # noqa: BLE001
+        return jsonify({"error": f"重新解析失败：{e}"}), 500
+
+    # 先备份（用户可能已手工修过一些字段，重新解析会覆盖）
+    bundle.backup_db(force=True)
+    doc["content"] = content
+    doc["sourceContent"] = copy.deepcopy(content)
+    saved = docs_svc.save_document(doc)
+    return jsonify({
+        "document": saved,
+        "rawText": extracted.get("raw_text", "")[:2000],
+        "reparsed": True,
+    })
+
+
+def _safe_rel(rel: str) -> bool:
+    """防目录穿越：只允许 imports/ 下的相对路径。"""
+    return bool(rel) and rel.startswith("imports/") and ".." not in rel
+
+
 @bp.post("/import/pdf")
 def import_pdf():
     if "file" not in request.files:

@@ -492,6 +492,27 @@ async function loadSourcePdf(rel) {
   const url = "/data/" + rel;
   openBtn.href = url;
 
+  // 重新解析按钮：解析规则升级后刷新旧文档字段
+  const reparseBtn = document.getElementById("btnReparse");
+  if (reparseBtn && !reparseBtn.dataset.bound) {
+    reparseBtn.dataset.bound = "1";
+    reparseBtn.addEventListener("click", async () => {
+      const ok = await confirmDialog(
+        "用最新解析规则重新解析这份 PDF？\n会覆盖当前各字段内容（自动先备份一次），原始 PDF 不变。");
+      if (!ok) return;
+      reparseBtn.disabled = true;
+      try {
+        const { document: doc } = await api.reparseImport(store.doc.id);
+        store.setDocument(doc);
+        toastSuccess("已按最新规则重新解析");
+      } catch (err) {
+        toastError(err.message);
+      } finally {
+        reparseBtn.disabled = false;
+      }
+    });
+  }
+
   // 已渲染过同一份就不再重复请求
   if (pagesEl.dataset.rel === rel) return;
   pagesEl.dataset.rel = rel;

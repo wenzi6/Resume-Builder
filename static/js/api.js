@@ -134,6 +134,8 @@ export const api = {
   saveDocument: (id, doc) => putJson(`/api/v1/documents/${id}`, { document: doc }),
   deleteDocument: (id) => del(`/api/v1/documents/${id}`),
   duplicateDocument: (id) => postJson(`/api/v1/documents/${id}/duplicate`, {}),
+  /** 用最新解析规则重新解析 PDF 导入文档 */
+  reparseImport: (id) => postJson("/api/v1/import/reparse", { id }),
   pageInfo: (doc) => postJson("/api/v1/page-info", { document: doc }),
   autoPagebreaks: (doc) => postJson("/api/v1/auto-pagebreaks", { document: doc }),
   autoFit: (doc) => postJson("/api/v1/auto-fit", { document: doc }),
