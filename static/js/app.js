@@ -551,3 +551,8 @@ export const app = {
 
 /* ================= GO ================= */
 boot();
+
+// 调试/自动化句柄：控制台可直接检查当前文档与撤销栈
+window.store = store;
+window.undo = () => store.undo();
+window.redo = () => store.redo();

@@ -1079,6 +1079,22 @@ input[type="range"]::-moz-range-thumb {
 .cfg-manager-row { display: flex; gap: 6px; align-items: center; }
 .cfg-select { flex: 1; min-width: 0; }
 
+/* ============ 对话修改方案卡片 ============ */
+.chat-plan {
+  border: 1px solid var(--accent);
+  background: var(--accent-soft);
+  margin-top: 8px;
+}
+.chat-plan.applied { opacity: 0.75; }
+.chat-plan .plan-row { margin: 8px 0; }
+.chat-plan .plan-loc {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+  margin-bottom: 4px;
+}
+.chat-plan .chat-acts { margin-top: 10px; display: flex; gap: 6px; }
+
 /* ============ 模型下拉 ============ */
 .model-field { position: relative; }
 .link-btn {
