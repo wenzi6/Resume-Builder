@@ -1,257 +1,391 @@
 # Resume Studio · 简历工作室
 
-把「能用的简历脚本」升级为**长期使用的简历产品**：排版完美的模板引擎 + 可视化编辑器 + PDF/Word/JSON 导出 + 本地持久化。
+> 把「能用的简历脚本」升级为**长期使用的简历产品**。
+> 排版完美的模板引擎 + 可视化编辑器 + AI 助手 + PDF/Word/JSON 导出 + 本地持久化。
 
-**第一优先级是排版完美**——中文字体正确嵌入（Type0 子集、文本可检索）、完美分页（无孤行 / 无截断 / 无空白页）、ATS 友好。
+[![Tests](https://github.com/wenzi6/Resume-Builder/actions/workflows/ci.yml/badge.svg)](https://github.com/wenzi6/Resume-Builder/actions/workflows/ci.yml)
+![Python](https://img.shields.io/badge/Python-3.12+-blue)
+![License](https://img.shields.io/badge/license-MIT-green)
+
+**第一优先级是排版完美**：中文字体正确嵌入（Type0 子集、文本可检索）、页数与所见即所得、无孤行 / 无截断 / 无空白页、ATS 友好。
+
+---
+
+## 目录
+
+- [一、快速开始](#一快速开始)
+- [二、使用说明书](#二使用说明书)
+  - [2.1 五分钟制作第一份简历](#21-五分钟制作第一份简历)
+  - [2.2 区块编辑](#22-区块编辑)
+  - [2.3 模板与设计](#23-模板与设计)
+  - [2.4 分页：让内容正好一页](#24-分页让内容正好一页)
+  - [2.5 导入现有简历](#25-导入现有简历)
+  - [2.6 导出](#26-导出)
+  - [2.7 ✨ AI 助手](#27--ai-助手)
+  - [2.8 多简历与数据安全](#28-多简历与数据安全)
+- [三、配置说明](#三配置说明)
+- [四、技术架构](#四技术架构)
+- [五、开发指南](#五开发指南)
+- [六、常见问题](#六常见问题)
+
+---
+
+## 一、快速开始
+
+### 环境要求
+
+| 依赖 | 版本 | 说明 |
+|---|---|---|
+| Python | 3.10+（推荐 3.12） | |
+| Playwright Chromium | 最新 | PDF 渲染引擎，**必须安装** |
+| 操作系统 | Windows / macOS / Linux | 开发与测试基于 Windows |
+
+### 安装（三步）
 
 ```bash
-cd E:\pythonProject\resume-builder
-$env:PYTHONPATH = 'E:\pythonProject\resume-builder'   # Windows PowerShell 必须设置
+# 1. 克隆仓库
+git clone https://github.com/wenzi6/Resume-Builder.git
+cd Resume-Builder
+
+# 2. 安装依赖
+pip install -r requirements.txt
+
+# 3. 安装 Chromium（PDF 渲染用，一次性）
+python -m playwright install chromium
+```
+
+### 启动
+
+```bash
 python app.py
-# 打开 http://localhost:5000
 ```
 
-> 双击 `python app.py` 即用：无需构建步骤、无需数据库配置、无外部服务依赖（LLM 功能为用户自选 Phase 2）。
-> 唯一的前置依赖是 Playwright 的 Chromium（首次使用执行一次 `playwright install chromium`）。
+打开浏览器访问 **http://localhost:5000** ，即可开始使用。
+
+> **Windows 用户注意**：如果在项目根目录外启动遇到 `ModuleNotFoundError`，请先设置
+> `$env:PYTHONPATH = 'E:\path\to\Resume-Builder'`（PowerShell）。
+
+**就这样**——无需数据库配置、无需构建步骤、无需注册账号。所有数据在本机 `data/` 目录。
 
 ---
 
-## 功能一览
+## 二、使用说明书
 
-### 编辑器（`static/`，原生 ES Modules，无构建）
+### 2.1 五分钟制作第一份简历
 
-| 区域 | 能力 |
+1. **启动后自动创建**一份示例简历（可直接改）
+2. **中栏表单**：逐项填写个人信息、工作经历、项目、教育、技能
+3. **右栏预览**：实时看到排版效果（输入后 300ms 自动刷新）
+4. **顶栏「导出 PDF」**：获得可投递的文本型 PDF（ATS 可解析）
+
+**快捷键**
+
+| 快捷键 | 功能 |
 |---|---|
-| 顶栏 | 简历重命名、模板切换（6 套，含 ATS 徽章）、**✨ AI 助手**、导入、JSON 编辑、导出 PDF / Word / JSON / HTML |
-| 左栏 · 区块 | 区块树：拖拽 / 箭头排序、显隐切换、重命名、删除；内置 7 区块 + 自定义区块（列表型 / 单块型，字段可配） |
-| 左栏 · 设计 | 字体（黑体 / 宋体 / **上传自有字体**）、字号缩放、行距、区块间距、页边距、主题色（预设 + 取色器）、日期位置、照片开关、一键压缩到一页、**⚡ 自动适应一页**（迭代压缩直到排进一页） |
-| 左栏 · 简历 | 多简历管理：新建（示例 / 空白）、切换、复制、删除、**历史版本**（自动快照可恢复）、标题搜索、**导出全部 / 导入全部**（ZIP 整体迁移）、**自动备份**（每 30 分钟，留 10 份，**可删除可恢复**） |
-| 中栏 | schema 驱动的表单：文本 / 日期 / 多行 / 列表（增删上下移）/ 技能星级，条目卡片增删排序 |
-| 右栏 | iframe 实时预览（300ms 防抖）、页码指示与警告、缩放、**分页编辑模式** |
+| `Ctrl+S` | 立即保存 |
+| `Ctrl+E` | 导出 PDF |
+| `Ctrl+Z` / `Ctrl+Y` | 撤销 / 重做 |
+| `Esc` | 关闭弹窗 |
 
-**编辑即所见**：表单变更 → 防抖 300ms 重新渲染 → 800ms 自动保存（后端 + localStorage 双写，刷新可恢复）。`Ctrl+S` 立即保存，`Ctrl+E` 导出 PDF，`Ctrl+Z` / `Ctrl+Y` 撤销 / 重做（以编辑突发为粒度）。
+### 2.2 区块编辑
 
-**分页编辑模式**：测量每个区块的落位，在预览中画出虚线分页线（位置按打印坐标精确反算，手动分页点也算在内）；点区块右上角「在此分页」写入手动分页点；「应用建议分页」一键采用后端建议（起始位置落在页面底部 12% 内的区块）。
+左栏「**区块**」页签管理简历的组成区块：
 
-### 模板体系（6 套）
-
-| id | 名称 | 版式 | ATS | 说明 |
-|---|---|---|---|---|
-| `classic` | 经典通排 | 单栏 | ✅ | 居中页眉 + 通栏细线标题，最通用 |
-| `modern` | 现代双栏 | 左侧边栏 | ❌ | 渐变通栏页眉 + 33% 边栏 |
-| `minimal` | 极简 | 单栏 | ✅ | 细线分隔、大字距标题、大量留白 |
-| `professional` | 专业衬线 | 单栏 | ✅ | 宋体正文 + 双线标题，正式稳重 |
-| `tech` | 技术深色 | 深色页眉 | ❌ | 渐变页眉 + 左侧时间轴 + 等宽日期 |
-| `ats-plain` | ATS 纯文本 | 单栏 | ✅ | 零颜色零背景零图标，评分条隐藏 |
-
-每套模板 = `template.json`（元信息 + slot 分配 + 默认设计参数）+ `layout.html`（Jinja2 布局）+ `layout.css`（视觉）。**所有模板共享同一套区块 HTML 语义标记**，视觉差异只由模板 CSS 决定——新增模板只需建目录放这三个文件，自动扫描。
-
-### 排版引擎
-
-- **设计令牌**：`doc.design`（字体 / 字号 / 行距 / 间距 / 边距 / 主题色…）由 `engine/tokens.py` 编译为 CSS 变量，模板只消费变量；`compact` 一键联动四参数
-- **中文排版**：盘古之白（中西文自动空格）、日期归一化（`YYYY-MM – 至今`）、统一 ` · ` 分隔符、避头尾（`line-break: strict`）、标点悬挂
-- **排版深度**：标题字体独立于正文（黑体/宋体/自有字体）；区块级覆盖（技能双列、隐藏区块标题）；模板菜单显示预览图
-- **完美分页三级防线**：① CSS 规则（区块 / 条目不拆分、标题不分离、孤行寡行控制、防空白页）② Playwright 测量（页数、区块落位、建议分页点、警告）③ 手动分页（`doc.pageBreaks` → 渲染注入 `.r-pagebreak`）
-- **页数即所见**：页码以**实际渲染的 PDF** 为准（ground truth），徽章 / 分页线 / 自动适应与导出永远一致；区块落位用 JS 原子级分页模拟（复现 Chromium 的 `break-inside:avoid` 挪页、超高区块先挪后拆、双栏独立流）
-- **字体管线**：Noto Sans/Serif SC 嵌入 PDF，Chromium 自动子集化（17MB → 约 0.6MB）
-
-### 性能与工程
-
-- **常驻 PDF worker 进程池**：Chromium 全程只启动一次，分页测量从 ~1.6s 降到 ~0.4s（自动适应一页、页码指示、导出全部受益）；worker 崩溃自动重启，失败回退单次子进程
-- **waitress 生产服务器**：多线程，替代 Flask dev server（`FLASK_DEBUG=1` 仍走 dev 模式）
-- **前端语法检查**：`node scripts/check_js.mjs`（零依赖，ESM 模式逐文件 `node --check`），CI 必过；核心模块带 `// @ts-check` + JSDoc
-
-### ✨ AI 助手（用户自带 Key，OpenAI 兼容协议）
-
-| 页签 | 能力 |
+| 操作 | 方法 |
 |---|---|
-| **生成简历** | 填目标岗位 / 年限 / 技能 / 经历要点 → 生成结构化简历内容 → 应用到新文档或替换当前 |
-| **修改建议** | 通读当前简历，从量化成果、动词强度、关键词匹配、ATS 友好度等维度给出带示例的建议 |
-| **JD 定制** | 粘贴 JD → 按关键词改写已有条目（不编造经历）→ 逐条应用；列出 JD 要求但未体现的关键词 |
-| **设置** | 24 个服务商预设（**「获取模型」按钮自动拉取服务商可用模型列表**，点击选择，不用手输） |
+| **排序** | 拖拽行，或点 ↑ ↓ 箭头 |
+| **显隐** | 点眼睛图标（隐藏的内容保留不丢失） |
+| **重命名** | 点 ✎ 图标 |
+| **删除** | 点 ✕（可随时从「添加区块」找回内置区块） |
+| **添加自定义区块** | 「+ 添加区块」→ 选列表型 / 单块型 → 配置字段 |
 
-AI 窗口支持**右下角拖动缩放**（尺寸自动记忆、可一键重置），对话区日志自适应撑满、输入框卡片式自适应高度。（国内 11 / 海外 9 / 本地 4，含智谱 GLM、豆包、混元、千帆、MiniMax、硅基流动、零一万物、阶跃、xAI、OpenRouter、Groq、Together、Mistral、LM Studio、vLLM、One API 中转…）+ 一键测试连接 |
-| **JD 匹配** | 纯本地分析（不调用 AI、离线可用）：JD 关键词分类提取（硬技能/学历/职位/软技能）→ 权重比对 → 匹配率 + 缺失关键词 + 建议 |
-| **对话** | 对话式迭代修改（SSE 流式），回复可一键复制 |
-| **批量润色** | 区块级一键润色所有条目（Google XYZ 公式），改写前后对比后应用 |
+内置 7 个区块：个人信息、工作经历、项目经历、教育经历、专业技能、自我评价、其他信息。
 
-字段级 **✨ 润色**：多行文本与列表每一行都有润色按钮，按 Google XYZ 公式（做了什么 + 可量化结果 + 怎么做）改写，不编造数据。
+**区块排版微调**：点区块标题右侧 ⚙ 图标，可设置**条目双列排列**（适合短条目技能）、**隐藏区块标题**。
 
-**流式输出**：润色与生成走 SSE 流式（`/api/v1/llm/stream`），逐段显示模型输出，不用干等 10-30 秒。
+### 2.3 模板与设计
 
-**四种 API 协议格式**（设置页「API 格式」切换，选预设时自动带出）：
+**6 套模板**（顶栏切换，带预览图）：
 
-| 格式 | 协议 | 覆盖 |
+| 模板 | 版式 | ATS 友好 | 适用 |
+|---|---|---|---|
+| 经典通排 | 单栏 | ✅ | 最通用，正式场合 |
+| 现代双栏 | 左侧边栏 | ❌ | 设计感、信息密度高 |
+| 极简 | 单栏细线 | ✅ | 留白多、克制 |
+| 专业衬线 | 宋体单栏 | ✅ | 国企 / 学术 / 金融 |
+| 技术深色 | 深色页眉 | ❌ | 互联网 / 技术岗 |
+| ATS 纯文本 | 零装饰 | ✅ | 机器解析成功率最高 |
+
+**设计参数**（左栏「设计」页签，改完即时生效）：
+
+| 参数 | 范围 | 说明 |
 |---|---|---|
-| OpenAI 兼容 | `POST /chat/completions`，Bearer 鉴权 | 绝大多数服务商（默认） |
-| Anthropic 原生 | `POST /v1/messages`，`x-api-key` 头 + 版本头，system 为顶层参数 | Claude 全系 |
-| Google Gemini 原生 | `POST :generateContent`，key 走 URL 参数，contents/parts 结构 | Gemini 全系 |
-| Azure OpenAI | URL 带 deployment + `api-version`，`api-key` 头 | Azure 部署 |
+| 正文字体 | 黑体 / 宋体 / 自有字体 | |
+| **标题字体** | 黑体 / 宋体 | 独立于正文，制造层级 |
+| 字号缩放 | 80%–115% | 全局等比 |
+| 行距 | 1.20–1.80 | |
+| 区块间距 | 8–32 px | |
+| 页边距 | 12.7–25 mm | 下限 0.5 英寸，保证打印可读 |
+| 主题色 | 取色器 + 10 预设 | 自动派生浅色/深色变体 |
+| 日期位置 | 右对齐 / 标题下 | |
+| 显示照片 | 开 / 关 | ATS 场景建议关闭 |
+| 压缩到一页 | 开 / 关 | 一键联动四项参数 |
+| **⚡ 自动适应一页** | 按钮 | 自动迭代压缩直到排进一页（或告诉你放不下） |
 
-新增一种第三方协议 = 在 `services/llm.py` 加一组 build/parse 函数并注册进 `_FORMATS`。
+### 2.4 分页：让内容正好一页
 
-**Key 安全**：只保存于本机 `data/llm_config.json`（已 gitignore），除你选择的服务商外不发往任何地方；`GET /config` 永不返回 Key 本身。
+- **页码指示**：右栏顶部实时显示「共 N 页」——与实际导出**永远一致**（以真实渲染为准）
+- **分页编辑模式**：点「分页」按钮 →
+  - 预览中画出**虚线分页线」（第 N 页 / 第 N+1 页分界）
+  - 每个区块右上角出现「**在此分页**」按钮，点击即设 / 取消手动分页
+  - 「**应用建议分页**」：自动把起始位置落在页面底部 12% 内的区块提到下一页
+  - 「**清除全部分页**」：一键还原
+- **超页警告**：内容超过一页 / 末页内容过少时，页码旁会给出提示
 
-### 导入导出
+### 2.5 导入现有简历
 
-- **导出**：PDF（Playwright + `@page` A4）、Word（python-docx，字号 / 行距 / 边距与 HTML 一致）、JSON（含信封格式）、**自包含 HTML**（字体 base64 内嵌，离线可开）
-- **导出质量自检**：每次导出 PDF 后校验内嵌字体——发现 Type3 降级（用户导入的模板引用了不可嵌入的字体）会通过响应头返回警告，编辑器即时提示
-- **导入**：JSON（兼容 v1 旧格式，自动迁移，换发新 id 不覆盖已有简历）、模板（.html / .zip，含路径穿越防护）
-- **PDF 对照导入**：解析为模块化内容的同时，**原始 PDF 原格式保留**在右栏「原始格式」视图（服务端渲染为逐页图片，全环境一致）；左侧模块编辑不影响原格式；可随时切回「模板预览」，或用「原生查看器打开」看原文
-- **原格式导出**：对照导入的文档，「导出 PDF」默认把模块修改**打进原始 PDF**（PyMuPDF Span 级文本替换：改动处按原字体字号重排文字、删除处 redact、未改动部分原版式不变）；「模板排版」按钮则按当前模板重新排版。无法应用的改动会在导出时明确告知
-- **自有字体**：上传 .ttf / .otf → 自动检测 CFF 并转换为 glyf + 剥离部首 cmap → 注册进设计面板，PDF 导出时正常嵌入为 Type0
-- **持久化**：SQLite（WAL 模式）多简历管理 + 每份文档最近 20 份历史快照（`data/resumes.db`，运行时自动生成）
+顶栏「**导入**」支持三种来源：
+
+| 类型 | 说明 |
+|---|---|
+| **PDF 简历** | **对照导入**：解析成模块化内容的同时，原始 PDF **原格式保留**在右栏「原始格式」视图——左边改内容，右边对照原版；导出时按当前模板重新排版（也可选择「导出 PDF」把修改打进原 PDF，版式不变） |
+| **JSON** | 本工具导出的 JSON，或旧版 v1 格式（自动迁移） |
+| **模板** | `.html` 单文件或 `.zip`（layout.html + layout.css + template.json），放即生效 |
+
+### 2.6 导出
+
+| 格式 | 特点 |
+|---|---|
+| **PDF** | Chromium 渲染，A4，字体子集嵌入，文本可检索（ATS 可解析）；导出时自动做字体质量自检 |
+| **Word** | .docx，字号 / 行距 / 边距与网页版一致 |
+| **JSON** | 完整数据，可再导入 / 备份 |
+| **HTML** | 自包含单文件（字体 base64 内嵌），离线可开，适合分享 / 存档 |
+
+### 2.7 ✨ AI 助手
+
+> 需要**自备 API Key**（OpenAI 兼容协议）。Key 只保存在本机 `data/llm_config.json`，不会上传到任何地方。
+
+**配置（一次搞定）**：点顶栏「✨ AI」→「设置」→
+
+1. 选服务商预设（内置 **24 家**）或自定义
+2. 粘贴 API Key → 保存
+3. 点「**获取模型**」自动拉取可用模型列表，点击选择（也可手输）
+4. 点「测试连接」验证
+
+**支持的 24 家服务商**：
+
+| 类别 | 服务商 |
+|---|---|
+| 国内 | DeepSeek、智谱 GLM、通义千问、Kimi、火山豆包、MiniMax、腾讯混元、百度千帆、零一万物、阶跃星辰、硅基流动 |
+| 海外 | OpenAI、**Anthropic Claude**、**Google Gemini**、**Azure OpenAI**、xAI Grok、OpenRouter、Groq、Together AI、Mistral |
+| 本地 / 自建 | Ollama、LM Studio、vLLM、One API / New API 中转 |
+
+自动适配四种 API 协议（OpenAI 兼容 / Anthropic 原生 / Gemini 原生 / Azure），无需关心格式差异。
+
+**五项 AI 能力**：
+
+| 能力 | 说明 |
+|---|---|
+| **生成简历** | 填目标岗位 / 年限 / 技能 / 经历要点 → 生成结构化简历（不虚构公司名，用占位符） |
+| **修改建议** | 通读简历，从量化成果、动词强度、关键词、ATS 友好度给建议（带示例文案） |
+| **JD 定制** | 粘贴招聘 JD → 按关键词改写你**已有**的经历（不编造），逐条应用 |
+| **JD 匹配** | **纯本地**、离线可用：匹配率 % + 缺失关键词 + 建议（不调用 AI） |
+| **对话** | 对话式迭代：「把第一条改短」「补充量化数据」…流式回复可直接复制 |
+| **字段级润色** | 表单里每个多行字段 / 列表行旁的 ✨ 按钮；区块头 ✨ 可**批量润色**整块 |
+
+AI 窗口**可拖拽缩放**（右下角把手，尺寸自动记忆），对话区输入框自适应高度。
+
+### 2.8 多简历与数据安全
+
+左栏「**简历**」页签：
+
+- **多简历管理**：新建（示例 / 空白）、切换、复制、删除、标题搜索
+- **历史版本**：每次保存自动快照（最多 20 份），可随时恢复
+- **自动备份**：启动时 + 每 30 分钟自动备份数据库（内容无变化则跳过），保留最近 10 份，**可恢复也可删除**
+- **导出全部 / 导入全部**：ZIP 打包所有简历（含对照导入的原始 PDF），换机迁移一键完成
 
 ---
 
-## 架构
+## 三、配置说明
 
-```
-app.py                        # 入口：python app.py
-pdf_worker.py                 # Playwright 子进程：pdf / measure 两种模式
-resume_builder/
-├── __init__.py               # create_app() + main()
-├── config.py                 # 路径 / 端口 / 边距下限 / 允许的跨域源
-├── schema.py                 # Document 模型、归一化、v1→v2 迁移
-├── registry.py               # 内置区块注册表（7 区块）★单一事实来源
-├── sample.py                 # 两份示例数据
-├── engine/
-│   ├── tokens.py             # 设计参数→CSS 变量、@font-face（内置+用户字体）、@page  ★字体清单在此
-│   ├── font_convert.py       # CFF→glyf 转换 + 部首 cmap 剥离（tools 的 CLI 是其封装）
-│   ├── typo.py               # 盘古之白 / 日期归一化 / 分隔符（Jinja filters）
-│   ├── base_css.py           # 共享基础样式 + 打印分页规则
-│   ├── sections.py           # 区块 → 规范化 HTML（.rsec/.ritem/.rlist 语义标记）
-│   ├── renderer.py           # Jinja2 渲染 + slot 分配 + 分页锚点
-│   └── pdf.py                # 子进程封装 + 分页测量 + 字体校验 + 临时文件清理
-├── exporters/
-│   ├── docx.py               # Word 导出
-│   ├── html_export.py        # 自包含 HTML（字体 base64 内嵌）
-│   └── json_io.py            # JSON 导入导出（含 v1 迁移）
-├── services/
-│   ├── documents.py          # SQLite 持久化（WAL + 版本快照）
-│   ├── font_manager.py       # 用户自有字体：转换 + 清洗 + 注册
-│   ├── autofit.py            # 一键适应一页（迭代压缩）
-│   └── pdf_import.py         # PDF → 结构化文档
-└── api/                      # /api/v1/* Blueprint + /api/* 旧版兼容层
-templates/                    # 6 套模板（template.json + layout.html + layout.css）
-static/                       # 前端编辑器（editor.html / editor.css / js/ ES Modules，含 i18n）
-fonts/                        # Noto Sans/Serif SC 静态 TTF（OFL 许可）+ user/ 用户上传
-tests/                        # pytest 套件（108 用例）
-tools/                        # 字体维护工具（otf2ttf / strip_radical_cmap）
-legacy/                       # v1 全部源码归档（不参与运行，未纳入 git）
-```
+### AI 配置（`data/llm_config.json`，自动生成）
 
-### 数据模型
-
-```python
-Document = {
-  "id": "uuid hex", "title": str, "templateId": str,
-  "design": {...},                  # 字体/字号/行距/间距/边距/主题色/日期位置/照片/压缩
-  "sections": [ SectionConfig ],    # 顺序即渲染顺序
-  "content": {...},                 # 各区块数据
-  "pageBreaks": [sectionKey, ...],  # 手动分页点
-  "version": 2, "createdAt": float, "updatedAt": float,
+```json
+{
+  "base_url": "https://api.deepseek.com",
+  "api_key": "sk-...",
+  "model": "deepseek-chat",
+  "format": "openai",
+  "timeout": 90
 }
-SectionConfig = {"key","title","type":"object|array|simple|skills","fields":[FieldDef],"visible":bool}
 ```
 
-内置区块：`profile`(object) / `workExperiences`(array) / `projects`(array) / `educations`(array) / `skills`(skills) / `selfEvaluation`(simple) / `custom`(simple)。用户可新增自定义区块。
+`format` 取值：`openai` / `anthropic` / `gemini` / `azure`。选预设时自动带出。
 
-### API（`/api/v1`）
+### 设计参数（`doc.design`）
 
-| 端点 | 方法 | 说明 |
+| 字段 | 默认 | 范围 |
 |---|---|---|
-| `/api/v1/templates` | GET | 模板列表（含 defaultDesign） |
-| `/api/v1/schema/sections` | GET | 区块定义，驱动表单渲染 ★单一事实来源 |
-| `/api/v1/documents` | GET/POST | 列表 / 新建 |
-| `/api/v1/documents/from-sample/<general\|tech>` | POST | 从内置示例创建 |
-| `/api/v1/documents/<id>` | GET/PUT/DELETE | 读写删 |
-| `/api/v1/documents/<id>/duplicate` | POST | 复制 |
-| `/api/v1/render` | POST | `{document}` → 预览 HTML |
-| `/api/v1/page-info` | POST | 页数 + 区块落位 + 建议分页点 + 警告（含手动分页点换算） |
-| `/api/v1/auto-pagebreaks` | POST | 只返回建议分页点 |
-| `/api/v1/auto-fit` | POST | 一键适应一页：迭代压缩直到页数 ≤ 1 |
-| `/api/v1/fonts` | GET | 用户自有字体列表 |
-| `/api/v1/fonts/upload` | POST | 上传字体（自动转换 + 清洗 + 注册） |
-| `/api/v1/fonts/<file>` | DELETE | 删除用户字体 |
-| `/api/v1/documents/<id>/versions` | GET | 文档历史快照 |
-| `/api/v1/documents/<id>/versions/<vid>/restore` | POST | 恢复历史版本 |
-| `/api/v1/export/{pdf,docx,json,html}` | POST | 导出（支持 `{id}` 或 `{document}`） |
-| `/api/v1/import/json` | POST | JSON 导入（含 v1 迁移，换发新 id） |
-| `/api/v1/import/pdf` | POST | PDF 对照导入（解析 + 原始文件保留） |
-| `/api/v1/documents/<id>/source-pages` | GET | 原始 PDF 逐页渲染（对照视图数据源） |
-| `/api/v1/llm/config` | GET/PUT | AI 配置（GET 不返回 Key） |
-| `/api/v1/llm/test` | POST | 测试 AI 连接 |
-| `/api/v1/llm/polish` `/generate` `/suggest` `/tailor` | POST | 润色 / 生成 / 建议 / JD 定制 |
-| `/api/v1/import-template` | POST | 模板导入（.html/.zip，有穿越防护） |
-
-旧版 `/api/*` 兼容层：`/api/templates`、`/api/sample-data`、`/api/preview/<t>`、`/api/render/<t>`、`/api/export-pdf/<t>`、`/api/export-word/<t>` 已桥接。其他路由：`GET /`（编辑器）、`GET /static/<file>`、`GET /fonts/<file>`、`GET /data/<file>`、`GET /healthz`。
+| `fontFamily` | `sans` | sans / serif / 用户字体家族名 |
+| `headFont` | `sans` | sans / serif（标题独立字体） |
+| `fontScale` | 1.0 | 0.80–1.15 |
+| `lineHeight` | 1.45 | 1.20–1.80 |
+| `sectionGap` | 18 | 8–32 px |
+| `pageMargin` | 20 | 12.7–25 mm |
+| `accent` | `#0f766e` | hex |
+| `dateAlign` | `right` | right / below |
+| `showPhoto` | false | bool |
+| `compact` | false | bool（一键压缩：0.94 / 1.32 / 12px / 15mm） |
 
 ---
 
-## 字体管线（重要背景）
+## 四、技术架构
 
-Chromium 的 PDF 后端**无法正确嵌入 CFF 轮廓的 web font**，会降级为 Type3（文本层乱码、ATS 无法解析）；只有 glyf 轮廓才能嵌入为 Type0 子集。因此：
+### 技术栈
 
-1. `fonts/` 只放 **glyf TTF**（当初下载的 Noto OTF 已用 `tools/otf2ttf.py` 一次性转换，`.otf` 已删除）
-2. Noto CJK 字体的 cmap 中，208 个康熙部首（U+2F00–U+2FDF）与汉字**共用字形**，Chromium 构建 ToUnicode 时按字形反查会命中部首码位（如 ⾼ U+2FBC 而不是 高 U+9AD8），导致 pdfplumber/pdfminer 提取乱码。已用 `tools/strip_radical_cmap.py` 剥离（pymupdf 不受影响，但 ATS 解析常用 pdfplumber）
-3. 等宽字体栈必须指向可嵌入的字体（`"Consolas", "Courier New", "Noto Sans SC", monospace`）——`ui-monospace` / `Cascadia Mono` / 通用 `monospace` 回退会产生 Type3
+| 层 | 选型 | 理由 |
+|---|---|---|
+| 后端 | Python 3.12 + Flask | 本地工具，轻量够用 |
+| PDF | Playwright + Chromium | 唯一能忠实还原 CSS 排版（flex/grid/渐变）的方案 |
+| Word | python-docx | |
+| 数据 | SQLite（WAL 模式） | 单机单用户零维护 |
+| 前端 | 原生 ES Modules | **无构建步骤**，双击即用 |
+| AI | urllib 直连 | 零依赖，支持 4 种协议 |
+| 测试 | pytest + Playwright（237 用例） | 含字体 / 分页 / ATS / 视觉回归 |
 
-修改字体相关代码后务必跑 `pytest tests/test_pdf_fonts.py`（字体回归）。
+### 渲染管线
+
+```
+normalize_document(doc)                      # schema.py：收敛形状 + v1 迁移
+  → render_body_html()                       # sections.py：区块 → 规范化 HTML
+      ├─ 每个区块 → .rsec/.ritem/.rlist 语义标记
+      └─ pageBreaks 中的 key → 前插 <div class="r-pagebreak">
+  → Jinja2 渲染 <template>/layout.html       # 只写结构：top/sidebar/main 三槽位
+  → 组装完整 HTML：
+      @font-face   预览→/fonts，pdf→file:/// 绝对路径
+      @page        { size: A4; margin: <mm> }
+      :root        设计令牌 CSS 变量
+      base_css     重置 + 语义标记 + 中文排版 + 打印分页规则
+      layout.css   模板视觉差异化
+```
+
+**核心设计**：所有模板共享同一套区块 HTML 标记，视觉差异**只**由模板 CSS 决定——排版质量一致、打印规则只写一份、自定义区块自动获得全部模板支持。
+
+### 页数为什么永远准确
+
+测量时 Chromium 同时做两件事：JS 原子级分页模拟（复现 `break-inside:avoid` 挪页、双栏独立流）+ **实际渲染 PDF 数页数**。徽章、分页线、「自动适应一页」与最终导出永远一致。
+
+### 目录结构
+
+```
+Resume-Builder/
+├── app.py                     # 入口：python app.py
+├── pdf_worker.py              # Playwright 常驻进程（pdf / measure / pageinfo）
+├── requirements.txt
+├── resume_builder/
+│   ├── __init__.py            # create_app() + main()（waitress 生产模式）
+│   ├── config.py              # 路径 / 端口 / 边距下限
+│   ├── schema.py              # Document 模型、归一化、v1→v2 迁移
+│   ├── registry.py            # 内置区块注册表（7 区块）★单一事实来源
+│   ├── sample.py              # 两份示例数据
+│   ├── engine/
+│   │   ├── tokens.py          # 设计参数 → CSS 变量、@font-face、@page
+│   │   ├── font_convert.py    # CFF→glyf 转换 + 部首 cmap 清洗
+│   │   ├── base_css.py        # 共享基础样式 + 打印分页规则
+│   │   ├── sections.py        # 区块 → 规范化 HTML
+│   │   ├── renderer.py        # Jinja2 渲染 + slot 分配
+│   │   └── pdf.py             # 常驻 worker 池 + 字体校验 + 备份清理
+│   ├── exporters/
+│   │   ├── docx.py            # Word 导出
+│   │   ├── html_export.py     # 自包含 HTML
+│   │   └── json_io.py         # JSON 导入导出（含 v1 迁移）
+│   └── services/
+│       ├── documents.py       # SQLite 持久化（WAL + 版本快照）
+│       ├── bundle.py          # 自动备份 + ZIP 全量导出入
+│       ├── font_manager.py    # 用户自有字体管理
+│       ├── autofit.py         # 一键适应一页
+│       ├── analyze.py         # 本地 JD 关键词匹配
+│       ├── llm.py             # AI 客户端（4 种协议 + 流式）
+│       ├── pdf_patch.py       # 原格式 PDF 补丁导出
+│       ├── pdf_import.py      # PDF → 结构化文档
+│       └── source_pdf.py      # 原始 PDF 逐页渲染
+│   └── api/                    # /api/v1/* Blueprint（documents/render/export/imports/fonts/llm/analyze/backups）
+├── templates/                 # 6 套模板（template.json + layout.html + layout.css + preview.png）
+├── static/                    # 前端编辑器（editor.html / editor.css / js/ ES Modules）
+├── fonts/                     # Noto Sans/Serif SC（SIL OFL 1.1）+ user/ 用户字体
+├── tests/                     # pytest 237 用例 + 视觉回归基线
+└── tools/                     # 字体维护 / 预览图生成脚本
+```
+
+### API 概览（56 个端点）
+
+| 分组 | 端点 |
+|---|---|
+| 模板 / Schema | `GET /api/v1/templates`、`GET /api/v1/templates/<id>/preview.png`、`GET /api/v1/schema/sections` |
+| 文档 | `GET/POST /api/v1/documents`、`GET/PUT/DELETE /api/v1/documents/<id>`、`POST .../duplicate`、`POST .../from-sample/<n>` |
+| 版本 / 备份 | `GET .../versions`、`POST .../versions/<vid>/restore`、`GET/POST/DELETE /api/v1/backups` |
+| 渲染 / 分页 | `POST /api/v1/render`、`POST /api/v1/page-info`、`POST /api/v1/auto-pagebreaks`、`POST /api/v1/auto-fit` |
+| 导出 / 导入 | `POST /api/v1/export/{pdf,docx,json,html}`、`POST /api/v1/import/{json,pdf}`、`POST /api/v1/import-template`、`GET/POST /api/v1/documents/{export,import}-all` |
+| AI | `GET/PUT /api/v1/llm/config`、`POST /api/v1/llm/test`、`GET /api/v1/llm/models`、`POST /api/v1/llm/{polish,polish-batch,generate,suggest,tailor,chat,stream}` |
+| 本地分析 | `POST /api/v1/analyze`（JD 匹配，不调用 AI） |
+| 字体 | `GET/POST/DELETE /api/v1/fonts`、`POST /api/v1/fonts/upload` |
 
 ---
 
-## 开发
+## 五、开发指南
+
+### 运行测试
 
 ```bash
-$env:PYTHONPATH = 'E:\pythonProject\resume-builder'
-
-python app.py                        # 启动（http://localhost:5000）
-node scripts/check_js.mjs           # 前端语法检查（或 npm run check）
-python -m pytest tests/ -q           # 全部测试（237 用例，PDF 用例会真实起 Chromium）
-python tests/debug_pdf_fonts.py      # 诊断：PDF 内嵌字体原始信息 + 渲染页面图
+python -m pytest tests/ -q        # 237 用例（PDF 用例会真实启动 Chromium，约 2.5 分钟）
+node scripts/check_js.mjs         # 前端语法检查（零依赖）
 ```
 
-测试套件构成：
+测试覆盖：API 全端点 / 6 模板渲染 / **字体回归**（Type0 + 中文可检索）/ **分页回归**（页数一致性）/ **ATS 回归**（pdfplumber 双库提取）/ 视觉回归（位图像素对比）/ AI / 数据安全。
 
-| 文件 | 覆盖 |
-|---|---|
-| `test_api.py` | 全部 API 端点、CRUD、导入（含 v1 迁移）、模板导入穿越防护、旧版兼容层、边界情况 |
-| `test_render.py` | 6 模板 × 2 示例渲染、语义标记完整性、设计令牌编译 |
-| `test_pdf_fonts.py` | **P0 字体回归**：Type0 子集 + 中文可检索 + file:// 路径 + 目录无 OTF |
-| `test_pagination.py` | 1/2/3 页页数、无空白页、手动分页换算、标题不落页底 |
-| `test_ats.py` | ats-plain 的 PDF（pymupdf + pdfplumber 双库）/ DOCX 文本完整提取 |
-| `test_import_pdf.py` | PDF 导入：自家管线生成样本 → 解析回结构化数据 → 坏文件优雅失败 |
-| `test_visual_regression.py` | 视觉回归：6 模板位图与基线像素对比（`REGEN_BASELINES=1` 更新基线） |
-| `test_features.py` | 字体上传 / 自动适应 / HTML 导出 / 版本历史 / 导出字体自检 / photo 安全 |
-| `test_source_pdf.py` | 对照导入：原始 PDF 落盘 / 往返 / 删除清理 / 复制独立 / 逐页渲染 / 安全路径 |
-| `test_original_export.py` | 原格式导出：无修改原样导出 / 修改应用且版式不变 / 删除 redact / 兜底与报错 |
-| `test_llm.py` | AI：配置安全（Key 不泄露）/ 四项能力 / 四种协议格式适配 / 流式输出 / 错误路径 / 空库启动 |
-| `test_bundle.py` | 数据安全：自动备份（一致性/跳过/保留份数）/ 恢复 / 全量导出导入往返 / 原始 PDF 打包 |
+### 新增一套模板
 
-### 环境坑（都踩过）
+在 `templates/` 下建目录，放三个文件即自动被扫描：
 
-1. **跑 Python 必须设 `PYTHONPATH`**（或在项目根执行），否则 `ModuleNotFoundError: No module named 'resume_builder'`
-2. PowerShell 里不要用多行 `python -c "..."`（引号 / 转义会炸）——写成 .py 文件再跑
-3. `page.pdf()` 不接受 BytesIO，必须传文件路径再读回
-4. 重启开发服务器前确认端口 5000 已释放（`netstat -ano | findstr :5000`）
-5. 字体转换很慢（31k 字形），必须放后台跑
+```
+templates/mytemplate/
+├── template.json     # { "name": "...", "layout": "single|sidebar-left|...", "slots": {...} }
+├── layout.html       # Jinja2 布局，用 top_sections / sidebar_sections / main_sections 槽位
+└── layout.css        # 只写视觉差异化（消费 --r-* CSS 变量）
+```
+
+### 新增字体
+
+把 `.ttf`（或 `.otf`，会自动转换为可嵌入的 glyf 格式）放入 `fonts/`，或在编辑器「设计 → 字体」中上传。修改字体后务必跑 `pytest tests/test_pdf_fonts.py`。
+
+### 新增 AI 服务商
+
+在 `services/llm.py` 的 `PROVIDER_PRESETS` 加一条预设；若是全新 API 协议，在 `_FORMATS` 注册一组 `build_request` / `parse_response` / `parse_delta` 函数。
 
 ---
 
-## 路线图
+## 六、常见问题
 
-**Phase 1（排版）——已完成**：令牌化模板引擎、6 套模板、中文字体嵌入、完美分页、可视化编辑器、测试套件。
+**Q：导出的 PDF 文字能复制吗？能被招聘网站解析吗？**
+A：能。PDF 内嵌 Type0 字体子集，文本层完整可检索，ATS 友好（推荐 `classic` / `ats-plain` 模板）。
 
-**Phase 2（产品化）——待办**：
+**Q：页数显示和实际导出不一致？**
+A：不会。页数以真实渲染的 PDF 为准，这是回归测试锁定的核心契约。
 
-1. **JD 关键词匹配 / ATS 检查**：输入 JD 文本 → 提取关键词（硬技能 > 教育 > 职位 > 软技能）→ 与简历比对 → 匹配率 + 缺失建议（纯本地实现，阈值 ≥75%）
-2. **LLM 内容润色**：OpenAI 兼容协议（base_url / api_key / model 用户可配，key 不提交）；bullet 按 Google XYZ 公式润色、按 JD 定制改写、量化成果建议
-3. 模板预览图（每套一张 `preview.png`）
-4. 多文档管理 UI 增强（后端已就绪）
+**Q：AI Key 安全吗？**
+A：Key 只存本机 `data/llm_config.json`（已被 .gitignore），除你选择的服务商外不发往任何地方；接口不返回 Key 本身。
+
+**Q：想换电脑？**
+A：「简历」页签 →「导出全部」得到 ZIP，在新电脑导入全部即可（含原始 PDF）。
+
+**Q：支持哪些浏览器？**
+A：Chrome / Edge 等现代浏览器（PDF 渲染基于 Chromium）。
+
+**Q：字体版权？**
+A：内置 Noto Sans/Serif SC 为 SIL OFL 1.1 许可，可自由使用与再分发。
 
 ---
 
-## 许可
+## 许可证
 
-代码：MIT。字体：[Noto Sans/Serif SC](https://github.com/notofonts/noto-cjk)，SIL OFL 1.1。
+代码 MIT；字体 SIL OFL 1.1。
