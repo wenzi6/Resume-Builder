@@ -15,8 +15,78 @@ let polishTarget = null; // {path, original, context}
 
 /* ---------------- 面板框架 ---------------- */
 
+const AI_SIZE_KEY = "resume-studio:ai-dialog-size";
+const AI_DEFAULT_SIZE = { w: 1120, h: 780 };
+
+function applyAiSize(size) {
+  const dlg = document.getElementById("aiDialog");
+  if (!dlg) return;
+  const w = Math.max(520, Math.min(size.w, window.innerWidth * 0.96));
+  const h = Math.max(380, Math.min(size.h, window.innerHeight * 0.92));
+  dlg.style.width = w + "px";
+  dlg.style.height = h + "px";
+}
+
+function loadAiSize() {
+  try {
+    const raw = localStorage.getItem(AI_SIZE_KEY);
+    if (raw) {
+      const s = JSON.parse(raw);
+      if (s && s.w && s.h) return s;
+    }
+  } catch { /* ignore */ }
+  return { ...AI_DEFAULT_SIZE };
+}
+
+function saveAiSize(size) {
+  try {
+    localStorage.setItem(AI_SIZE_KEY, JSON.stringify(size));
+  } catch { /* ignore */ }
+}
+
+/** 绑定对话框缩放把手（右下角拖动）。 */
+function bindAiResize() {
+  const handle = document.getElementById("aiResizeHandle");
+  const dlg = document.getElementById("aiDialog");
+  if (!handle || !dlg) return;
+  let start = null;
+
+  handle.addEventListener("mousedown", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const rect = dlg.getBoundingClientRect();
+    start = { x: e.clientX, y: e.clientY, w: rect.width, h: rect.height };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  });
+
+  function onMove(e) {
+    if (!start) return;
+    const w = Math.max(520, Math.min(start.w + (e.clientX - start.x), window.innerWidth * 0.96));
+    const h = Math.max(380, Math.min(start.h + (e.clientY - start.y), window.innerHeight * 0.92));
+    dlg.style.width = w + "px";
+    dlg.style.height = h + "px";
+  }
+
+  function onUp() {
+    if (!start) return;
+    document.removeEventListener("mousemove", onMove);
+    document.removeEventListener("mouseup", onUp);
+    const rect = dlg.getBoundingClientRect();
+    saveAiSize({ w: Math.round(rect.width), h: Math.round(rect.height) });
+    start = null;
+  }
+
+  // 重置大小按钮
+  document.getElementById("btnAiResetSize")?.addEventListener("click", () => {
+    applyAiSize(AI_DEFAULT_SIZE);
+    saveAiSize(AI_DEFAULT_SIZE);
+  });
+}
+
 export function openAiPanel(tab = "generate") {
   document.getElementById("aiOverlay").hidden = false;
+  applyAiSize(loadAiSize());
   switchAiTab(tab);
   loadAiConfig().then(() => {
     // 未配置 Key 时直接落到设置页，引导先完成配置
@@ -37,6 +107,8 @@ function switchAiTab(tab) {
     p.classList.toggle("active", p.id === "ai" + cap(tab));
     p.hidden = p.id !== "ai" + cap(tab);
   });
+  // 切到对话页签时渲染空态提示
+  if (tab === "chat") renderChatLog();
 }
 
 function cap(s) {
@@ -909,7 +981,18 @@ function renderChatLog() {
   const log = document.getElementById("chatLog");
   log.textContent = "";
   // 跳过第一条上下文消息
-  for (const m of chatMessages.slice(1)) {
+  const visible = chatMessages.slice(1);
+  if (!visible.length) {
+    const hint = el("div", "chat-empty-hint");
+    hint.textContent = "试试这些：" + String.fromCharCode(10) +
+      "· 把第一条 bullet 改短，突出量化结果" + String.fromCharCode(10) +
+      "· 补充项目经历里的技术细节" + String.fromCharCode(10) +
+      "· 按 JD 关键词重写专业技能";
+    hint.style.whiteSpace = "pre-line";
+    log.appendChild(hint);
+    return;
+  }
+  for (const m of visible) {
     appendChatBubble(m.role, m.content, true);
   }
   log.scrollTop = log.scrollHeight;
@@ -995,6 +1078,13 @@ export function bindAiPanel() {
 
   document.getElementById("btnAiSaveConfig").addEventListener("click", saveAiConfig);
   document.getElementById("btnFetchModels").addEventListener("click", fetchModels);
+  bindAiResize();
+  // 对话输入框自适应高度
+  const chatInput = document.getElementById("chatInput");
+  chatInput.addEventListener("input", () => {
+    chatInput.style.height = "auto";
+    chatInput.style.height = Math.min(chatInput.scrollHeight, 120) + "px";
+  });
   // 点击别处收起模型下拉
   document.addEventListener("click", (e) => {
     const dd = document.getElementById("modelDropdown");

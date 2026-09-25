@@ -74,7 +74,7 @@
 | AI 流式 | `llm.chat_stream`（四种格式 SSE delta 解析）+ `/api/v1/llm/stream`（线程+队列） | 润色 / 生成逐段显示 |
 | 生产服务器 | waitress（多线程；FLASK_DEBUG=1 仍 dev） | — |
 | 前端检查 | `scripts/check_js.mjs` + package.json type=module + `// @ts-check` | CI 必过 |
-| ✨ AI 助手（含获取模型列表 `GET /llm/models`） | `services/llm.py`（urllib 零依赖，**四种协议格式适配器**：openai/azure/anthropic/gemini，`_http_post` 可 mock）+ `api/llm.py` | 顶栏「✨ AI」面板四页签 + 24 个服务商预设分组 + 格式选择器 + 字段级润色按钮 |
+| ✨ AI 助手（含获取模型列表 `GET /llm/models`、窗口可缩放） | `services/llm.py`（urllib 零依赖，**四种协议格式适配器**：openai/azure/anthropic/gemini，`_http_post` 可 mock）+ `api/llm.py` | 顶栏「✨ AI」面板四页签 + 24 个服务商预设分组 + 格式选择器 + 字段级润色按钮 |
 
 **修过的坑（代码已验证，勿重复排查）**：
 
