@@ -165,3 +165,93 @@ def test_export_json_keeps_source_pdf(client, sample_pdf_bytes):
     assert r2.status_code == 200
     assert b"sourcePdf" in r2.get_data()
     client.delete(f"/api/v1/documents/{doc['id']}")
+
+
+# ---------------------------------------------------------------- 列表标记打进原格式
+
+def _write_source_pdf(data, name="marker-src.pdf") -> str:
+    """把一份 PDF 落到临时 imports/，返回 patch_pdf 需要的相对路径。"""
+    rel = f"imports/{name}"
+    p = _data_dir() / rel
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_bytes(data)
+    return rel
+
+
+def _pdf_text(data: bytes) -> str:
+    import pymupdf
+
+    with pymupdf.open(stream=data, filetype="pdf") as d:
+        return "\n".join(page.get_text() for page in d)
+
+
+def test_patch_bullet_num_on_vector_dots(client, sample_pdf_bytes):
+    """矢量圆点的原格式：标记=数字 → 行首变 1. 2. 3.，每条经历重新计数。"""
+    from resume_builder.services import pdf_patch
+
+    rel = _write_source_pdf(sample_pdf_bytes)
+    doc = normalize_document(sample_general())
+    design = {**doc["design"], "bulletStyle": "num"}
+    result = pdf_patch.patch_pdf(rel, doc["content"], doc["content"],
+                                 doc["sections"], design=design)
+    assert not result["unchanged"]
+    styled = [a for a in result["applied"] if a.get("path") == "design.bulletStyle"]
+    assert styled and styled[0]["markers"] >= 3
+    text = _pdf_text(result["data"])
+    assert "1." in text and "2." in text and "3." in text
+
+
+def test_patch_bullet_none_and_custom_on_text_dots(client):
+    """文字圆点（独立 Span）的原格式：none 清掉圆点、custom 换成自定义字符。"""
+    import fitz
+
+    from resume_builder.services import pdf_patch
+
+    d = fitz.open()
+    page = d.new_page()
+    lines = ["熟悉TCP/IP网络体系。", "熟悉Linux常用命令。", "熟悉EDR平台运维。"]
+    for i, txt in enumerate(lines):
+        y = 80 + i * 16
+        page.insert_text((72, y), "·", fontsize=10, fontname="helv")
+        page.insert_text((82, y), txt, fontsize=10, fontname="china-s")
+    rel = _write_source_pdf(d.tobytes(), "textdots.pdf")
+
+    content = {"skills": {"descriptions": lines}}
+    sections = [{"key": "skills", "title": "技能特长", "type": "free", "visible": True,
+                 "fields": [{"key": "descriptions", "label": "技能内容", "type": "free"}]}]
+
+    r_none = pdf_patch.patch_pdf(rel, content, content, sections,
+                                 design={"bulletStyle": "none"})
+    assert not r_none["unchanged"]
+    assert "·" not in _pdf_text(r_none["data"])
+
+    r_custom = pdf_patch.patch_pdf(rel, content, content, sections,
+                                   design={"bulletStyle": "custom", "bulletChar": "◆"})
+    text = _pdf_text(r_custom["data"])
+    assert "◆" in text and "·" not in text
+
+
+def test_patch_bullet_dot_keeps_original_bytes(client, sample_pdf_bytes):
+    """默认圆点 = 导入原貌：无内容改动时原样返回（unchanged，字节不动）。"""
+    from resume_builder.services import pdf_patch
+
+    rel = _write_source_pdf(sample_pdf_bytes, "dotkeep.pdf")
+    doc = normalize_document(sample_general())
+    result = pdf_patch.patch_pdf(rel, doc["content"], doc["content"],
+                                 doc["sections"], design=doc["design"])
+    assert result["unchanged"]
+    assert result["data"] == (_data_dir() / rel).read_bytes()
+
+
+def test_render_num_bullet_attr_and_css():
+    """模板渲染：num 标记输出 data-bullet="num"，CSS 用 counter 编号。"""
+    from resume_builder.engine import sections as sec
+
+    section = {"key": "workExperiences", "type": "array", "title": "工作经历",
+               "fields": [{"key": "descriptions", "type": "list"}]}
+    attr = sec._bullet_attr(section, {"bulletStyle": "num"})
+    assert 'data-bullet="num"' in attr
+    from resume_builder.engine import base_css
+    css = base_css.base_css(20.0)
+    assert 'data-bullet="num"' in css
+    assert "counter(rbullet)" in css

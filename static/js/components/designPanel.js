@@ -217,9 +217,9 @@ export function renderDesignPanel(container) {
   const gBullet = el("div", "design-group");
   gBullet.appendChild(el("div", "design-group-title", "列表标记"));
   gBullet.appendChild(el("p", "field-hint",
-    "职责描述、要点、成果前的标记。选「自定义」可填任意字符，选「无」则不加标记。"));
+    "职责描述、要点、成果前的标记，模板预览与原格式同步生效。选「数字」按 1. 2. 3. 编号（每条经历的列表各自从头编号），选「自定义」可填任意字符，选「无」则不加标记。"));
   const bulletSeg = el("div", "seg seg-wrap");
-  const BULLETS = [["dot", "圆点"], ["dash", "短横"], ["arrow", "箭头"],
+  const BULLETS = [["dot", "圆点"], ["num", "数字"], ["dash", "短横"], ["arrow", "箭头"],
                    ["none", "无"], ["custom", "自定义"]];
   for (const [v, label] of BULLETS) {
     const b = el("button", (design.bulletStyle || "dot") === v ? "active" : "", label);

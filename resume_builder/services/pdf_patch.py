@@ -235,13 +235,13 @@ def fitz_rect(bbox):
     return fitz.Rect(bbox)
 
 
-def _bullet_art_rects(page, line: dict) -> list:
+def _bullet_art_rects(page, line: dict, draws: list | None = None) -> list:
     """行首左侧的矢量圆点。
 
     很多 PDF 的列表标记是**画出来的**小圆圈（线条画），不是文字——它的 x 往往
     比该行文字更靠左，红选矩形只覆盖文字 span，于是删了内容只剩一个孤点。
     这里把行首左侧 24pt 内、垂直与行重叠、尺寸 ≤8pt 的填充图形找出来，
-    一并纳入红选。
+    一并纳入红选。draws 可传入整页 get_drawings() 结果（批量处理时避免逐行重扫）。
     """
     import fitz
 
@@ -252,10 +252,11 @@ def _bullet_art_rects(page, line: dict) -> list:
     y1 = max(float(s["bbox"][3]) for s in spans)
     x0 = min(float(s["bbox"][0]) for s in spans)
     out: list = []
-    try:
-        draws = page.get_drawings()
-    except Exception:  # noqa: BLE001
-        return out
+    if draws is None:
+        try:
+            draws = page.get_drawings()
+        except Exception:  # noqa: BLE001
+            return out
     for d in draws:
         r = d.get("rect")
         if r is None:
@@ -475,6 +476,144 @@ def _section_changes(src_path, old_content: Any, new_sections: list) -> list[dic
     return changes
 
 
+# ---------------------------------------------------------------- 列表标记样式（原格式）
+
+# 行首圆点字符（独立 Span 才可精确红选；部分简历用文字圆点，部分是矢量画的小圆圈）
+_TEXT_BULLET_CHARS = set("·•●○◦▪▫・‣∙-*–—")
+
+
+def _bullet_style_of(section: dict | None, design: Any) -> tuple[str, str]:
+    """生效的列表标记样式 (style, char)：区块级 > 全局 > 默认圆点。"""
+    sec_d = (section or {}).get("design") if isinstance(section, dict) else None
+    style = (sec_d or {}).get("bulletStyle") or (design or {}).get("bulletStyle") or "dot"
+    if style not in ("dot", "dash", "arrow", "num", "none", "custom"):
+        style = "dot"
+    char = (sec_d or {}).get("bulletChar") or (design or {}).get("bulletChar") or "•"
+    return style, str(char or "•")[:4]
+
+
+def _bullet_style_requested(design: Any, new_sections: list | None) -> bool:
+    """快速判定：全局或任一区块要求了非圆点样式。"""
+    if _bullet_style_of(None, design)[0] != "dot":
+        return True
+    for s in (new_sections or []):
+        if isinstance(s, dict) and _bullet_style_of(s, design)[0] != "dot":
+            return True
+    return False
+
+
+def _line_bullet(page, line: dict, draws: list | None = None):
+    """识别行首列表标记。返回 ("text", span) / ("art", [rect]) / None。
+
+    只处理「圆点是独立 Span」或「矢量小圆点」两种干净情况；圆点与正文
+    挤在同一 Span 里时红选宽度估不准，宁保持原样也不画歪。
+    """
+    spans = line.get("spans") or []
+    if not spans:
+        return None
+    first_txt = (spans[0].get("text") or "").strip()
+    if first_txt and len(first_txt) <= 2 and all(c in _TEXT_BULLET_CHARS for c in first_txt):
+        if len(spans) < 2:
+            return None          # 行里只剩标记（内容已删），交给孤立圆点清理
+        return ("text", spans[0])
+    arts = _bullet_art_rects(page, line, draws)
+    if arts:
+        return ("art", arts)
+    return None
+
+
+def _apply_bullet_style(doc, design: Any, new_sections: list | None) -> dict:
+    """把「设计 → 列表标记」打进原始 PDF：原格式预览与原格式导出同步生效。
+
+    只动「生效样式 ≠ 圆点(dot)」的行——dot 就是导入时的原貌，不动才是
+    无扰动（返回字节与原文一致，预览 digest 不抖）。编号(num)按连续
+    bullet 行分块、从 1 重新计数：每条经历的职责列表各自 1. 2. 3.；
+    标题行/非 bullet 行都会重置计数。放不下编号的行（列宽不足）保持原样。
+    返回 {"styled": 替换数, "skipped": 放弃数}。
+    """
+    import fitz
+
+    if not _bullet_style_requested(design, new_sections):
+        return {"styled": 0, "skipped": 0}
+
+    sec_by_key: dict[str, dict] = {}
+    title_list: list[tuple[str, str]] = []
+    for s in (new_sections or []):
+        if isinstance(s, dict) and s.get("key"):
+            sec_by_key[s["key"]] = s
+            t = _norm(s.get("title") or "")
+            if t:
+                title_list.append((t, s["key"]))
+
+    styled = skipped = 0
+    for page in doc:
+        try:
+            page_draws = page.get_drawings()
+        except Exception:  # noqa: BLE001
+            page_draws = []
+        # 行归属：最近的上方标题行；标题之上（页首区）用全局样式
+        cur_key = None
+        counter = 0
+        actions: list[tuple[str, Any, str, tuple | None]] = []
+        for line in _page_lines(page):
+            ln = _norm(line["text"])
+            for t, k in title_list:
+                if ln == t or (t in ln and len(ln) <= len(t) + 6):
+                    cur_key = k
+                    counter = 0
+                    break
+            marker = _line_bullet(page, line, page_draws)
+            if marker is None:
+                counter = 0
+                continue
+            sec = sec_by_key.get(cur_key) if cur_key else None
+            style, char = _bullet_style_of(sec, design)
+            if style == "dot":
+                counter = 0
+                continue
+            if style == "num":
+                counter += 1
+                text = f"{counter}."
+            elif style == "none":
+                text = ""
+            else:
+                text = char
+            if not text:
+                actions.append(("none", marker, "", None))
+                continue
+            spans = line["spans"]
+            kind, obj = marker
+            content = spans[1] if kind == "text" else spans[0]
+            x0 = float(obj["bbox"][0]) if kind == "text" else min(float(r.x0) for r in obj)
+            _, base_y = _span_baseline(content)
+            size = float(content.get("size") or 9)
+            avail = float(content["bbox"][0]) - x0 - 1.0
+            if avail < 2.5:
+                skipped += 1
+                continue
+            bold = bool(content.get("flags", 0) & 16)
+            font = _load_font(bold)
+            fs, _over = _fit_size_readable(text, size, avail, font, floor=max(4.0, size * 0.6))
+            color = _span_color(content)
+            actions.append((style, marker, text, (x0, base_y, fs, color, font)))
+
+        if not actions:
+            continue
+        for _, marker, _, _ in actions:
+            kind, obj = marker
+            if kind == "text":
+                page.add_redact_annot(fitz_rect(obj["bbox"]))
+            else:
+                for r in obj:
+                    page.add_redact_annot(r)
+        _apply_redactions(page, remove_line_art=True)
+        for _, _, text, paint in actions:
+            if paint:
+                _insert_text(page, (paint[0], paint[1]), text, paint[2], paint[3], False, font=paint[4])
+            styled += 1
+    return {"styled": styled, "skipped": skipped}
+
+
 def _entry_anchor_candidates(content: Any, path: str, exclude: str = "") -> list[str]:
     """从新增路径推出「同一条目」里已有的文本候选，用于在 PDF 里定位插入点。
 
@@ -581,9 +720,11 @@ def _append_new_line(doc, new_content: Any, path: str, new_val: str) -> tuple[bo
 
 
 def patch_pdf(source_rel: str, old_content: Any, new_content: Any,
-              new_sections: list | None = None) -> dict[str, Any]:
+              new_sections: list | None = None, design: Any = None) -> dict[str, Any]:
     """把 new_content 相对 old_content 的改动应用到原始 PDF。
 
+    design 是当前文档的设计参数：列表标记（bulletStyle/bulletChar，全局或
+    区块级）非默认圆点时，同步替换原 PDF 的行首标记（含数字编号）。
     返回 {data, applied:[{path}], failed:[{path, reason}], unchanged: bool}
     """
     import fitz
@@ -595,7 +736,8 @@ def patch_pdf(source_rel: str, old_content: Any, new_content: Any,
     changes = diff_content(old_content, new_content)
     changes.extend(_section_changes(src, old_content, new_sections))
     original = src.read_bytes()
-    if not changes:
+    style_requested = _bullet_style_requested(design, new_sections)
+    if not changes and not style_requested:
         return {"data": original, "applied": [], "failed": [], "unchanged": True}
 
     doc = fitz.open(stream=original, filetype="pdf")
@@ -640,6 +782,16 @@ def patch_pdf(source_rel: str, old_content: Any, new_content: Any,
                 break
         if not hit and not any(f["path"] == path for f in failed):
             failed.append({"path": path, "reason": "未能在原始 PDF 中定位旧内容"})
+
+    mres = _apply_bullet_style(doc, design, new_sections)
+    if mres["styled"]:
+        entry = {"path": "design.bulletStyle", "markers": mres["styled"]}
+        if mres["skipped"]:
+            entry["skipped"] = mres["skipped"]
+        applied.append(entry)
+    if not changes and not mres["styled"]:
+        doc.close()
+        return {"data": original, "applied": [], "failed": [], "unchanged": True}
 
     buf = doc.tobytes(deflate=True, garbage=3)
     doc.close()

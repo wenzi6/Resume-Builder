@@ -73,7 +73,7 @@ def _bullet_attr(section: dict, design: dict) -> str:
     """
     sec_d = _sec_design(section)
     style = sec_d.get("bulletStyle") or (design or {}).get("bulletStyle") or "dot"
-    if style not in ("dot", "dash", "arrow", "none", "custom"):
+    if style not in ("dot", "dash", "arrow", "num", "none", "custom"):
         style = "dot"
     char = sec_d.get("bulletChar") or (design or {}).get("bulletChar") or _BULLET_CHARS.get(style, "•")
     out = f' data-bullet="{style}"'

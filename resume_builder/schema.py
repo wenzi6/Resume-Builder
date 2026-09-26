@@ -33,8 +33,8 @@ DEFAULT_DESIGN: dict[str, Any] = {
 }
 
 # 列表标记样式（可自定义「职责/要点前的黑点」）
-BULLET_STYLES = ("dot", "dash", "arrow", "none", "custom")
-BULLET_CHARS = {"dot": "•", "dash": "–", "arrow": "▸", "none": "", "custom": "•"}
+BULLET_STYLES = ("dot", "dash", "arrow", "num", "none", "custom")
+BULLET_CHARS = {"dot": "•", "dash": "–", "arrow": "▸", "num": "1.", "none": "", "custom": "•"}
 
 DESIGN_LIMITS = {
     "fontScale": (0.80, 1.15),   # 下限 0.80：一键适应一页的压缩阶梯需要（8.4pt 仍是可读下限）

@@ -171,18 +171,24 @@ def source_pages_live(doc_id: str):
     content = body.get("content")
     if not isinstance(content, dict):
         content = doc.get("content")
-    # 兼容两种传法：{content, sections} 或 {document: {...}}
+    # 兼容两种传法：{content, sections, design} 或 {document: {...}}
     sections = body.get("sections")
+    design = body.get("design")
     if not isinstance(sections, list):
         whole = body.get("document")
         if isinstance(whole, dict):
             sections = whole.get("sections")
             if isinstance(whole.get("content"), dict):
                 content = whole["content"]
+            if isinstance(whole.get("design"), dict):
+                design = whole["design"]
     if not isinstance(sections, list):
         sections = doc.get("sections")
+    if not isinstance(design, dict):
+        design = doc.get("design")
     try:
-        result = pdf_patch.patch_pdf(rel, doc.get("sourceContent"), content, sections)
+        result = pdf_patch.patch_pdf(rel, doc.get("sourceContent"), content, sections,
+                                     design=design)
     except FileNotFoundError as e:
         log.error("实时预览：原始 PDF 缺失 %s: %s", doc_id, e)
         return jsonify({"error": str(e)}), 404
