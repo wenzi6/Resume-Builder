@@ -219,6 +219,17 @@ def render_array(section: dict, content: dict, design: dict) -> str:
         if not (title_html or sub_html or date_html or lists or kv_rows):
             continue
 
+        # 成果：独立分组 + 标签（与职责描述区分开，简历不单调）
+        ach = item.get("achievements")
+        if isinstance(ach, list) and any(str(x).strip() for x in ach):
+            ach_lst = _list_html(ach, cls="rlist rlist-ach")
+            if ach_lst:
+                lists.append(
+                    '<div class="ritem-ach">'
+                    '<span class="ritem-ach-label">成果</span>'
+                    f'{ach_lst}</div>'
+                )
+
         heading = f'<div class="ritem-heading">{title_html}{sub_html}</div>'
         head = f'<div class="ritem-head">{heading}{date_html}</div>'
         body = "".join(lists) + "".join(kv_rows)

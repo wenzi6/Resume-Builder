@@ -275,3 +275,43 @@ def test_parse_educations_degree_still_strips_label():
     items = pdf_import._parse_educations(lines)
     assert items[0]["degree"] == "计算机科学与技术"
     assert items[0]["descriptions"] == []
+
+
+# ---------------- 工作成果拆分 ----------------
+
+def test_split_achievements_conservative():
+    """只有量化/强结果词的 bullet 才进成果；职责开头的留在职责里。"""
+    items = [
+        {"company": "A", "descriptions": [
+            "负责公司招聘工作,根据项目需求开展人员招聘。",
+            "月均到岗 15 人,试用期留存率 92%。",
+            "维护招聘渠道及候选人资源,提高招聘效率。",
+            "负责网页防篡改系统的部署与策略配置,保障核心网站页面完整性。",
+        ]},
+        {"company": "B", "descriptions": ["只负责一件事", "再负责另一件"]},   # 全是职责 → 不拆
+        {"company": "C", "descriptions": ["完成交付 30+ 个项目"]},            # 单条 → 不拆
+    ]
+    out = pdf_import._split_achievements(items)
+    assert out[0]["achievements"] == ["月均到岗 15 人,试用期留存率 92%。",
+                                      "维护招聘渠道及候选人资源,提高招聘效率。"]
+    assert "负责网页防篡改系统的部署与策略配置,保障核心网站页面完整性。" in out[0]["descriptions"]
+    assert "achievements" not in out[1] or not out[1]["achievements"]
+    assert "achievements" not in out[2] or not out[2]["achievements"]
+
+
+def test_render_array_shows_achievement_group():
+    """模板渲染：成果要作为带标签的独立分组出现。"""
+    from resume_builder.engine import sections as sec
+
+    section = {"key": "workExperiences", "type": "array", "title": "工作经历",
+               "titleField": "company",
+               "fields": [{"key": "company", "type": "text"},
+                          {"key": "descriptions", "type": "list"},
+                          {"key": "achievements", "type": "list"}]}
+    content = {"workExperiences": [{
+        "company": "某某公司", "jobTitle": "工程师",
+        "descriptions": ["负责系统开发"], "achievements": ["性能提升 40%"]}]}
+    html = sec.render_array(section, content, {})
+    assert "ritem-ach" in html
+    assert "成果" in html
+    assert "性能提升 40%" in html

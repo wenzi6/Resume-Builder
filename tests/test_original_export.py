@@ -484,3 +484,16 @@ def test_section_title_rename_patches_original_pdf(client, imported):
         r2 = pdf_patch.patch_pdf(doc["sourcePdf"], doc["sourceContent"], doc["content"], secs2)
         applied2 = [a["path"] for a in r2["applied"]]
         assert any("selfEvaluation" in p for p in applied2), (applied2, r2["failed"])
+
+
+def test_split_between_fields_is_not_a_patch_change():
+    """把 bullet 从职责挪到成果（或反之）不该产生补丁改动——文字仍在原处。"""
+    from resume_builder.services import pdf_patch
+
+    old = {"workExperiences": [{"descriptions": ["负责A工作", "月均到岗15人", "负责B工作"]}]}
+    new = {"workExperiences": [{"descriptions": ["负责A工作", "负责B工作"],
+                                "achievements": ["月均到岗15人"]}]}
+    assert pdf_patch.diff_content(old, new) == []
+
+    # 反向挪回去也一样
+    assert pdf_patch.diff_content(new, old) == []

@@ -153,6 +153,26 @@ h1, h2, h3, h4, p, figure {{ margin: 0; }}
 .rlist li + li {{ margin-top: 2px; }}
 .rlist-plain li::before {{ background: var(--r-text-mute); }}
 
+/* 成果分组（工作经历/项目经历下的业绩） */
+.ritem-ach {{
+  margin-top: 5px;
+  padding: 4px 8px 5px;
+  border-left: 2px solid var(--r-accent);
+  background: color-mix(in srgb, var(--r-accent) 7%, transparent);
+  border-radius: 0 var(--r-radius-sm, 3px) var(--r-radius-sm, 3px) 0;
+}}
+.ritem-ach-label {{
+  display: block;
+  font-size: 0.86em;
+  font-weight: 700;
+  color: var(--r-accent);
+  letter-spacing: 0.04em;
+  margin-bottom: 1px;
+}}
+.ritem-ach .rlist {{ margin-top: 0; }}
+.ritem-ach .rlist li {{ color: var(--r-text); }}
+.ritem-ach .rlist li::before {{ background: var(--r-accent); }}
+
 /* 键值行（自定义区块的附加字段） */
 .rkv {{ color: var(--r-text-soft); margin-top: 2px; }}
 .rkv-k {{ font-weight: 600; color: var(--r-text); }}

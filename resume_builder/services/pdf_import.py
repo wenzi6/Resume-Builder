@@ -218,6 +218,54 @@ def _match_section_title(line: str, bold: bool) -> str | None:
     return None
 
 
+# 成果类表述的强信号：含量化结果，或强结果词
+_ACHIEVE_NUM_RE = re.compile(r"\d|％|%")
+_ACHIEVE_STRONG_RE = re.compile(
+    r"提升|提高|降低|缩短|减少|增长|获得|荣获|获奖|冠军|亚军|排名|留存|转正|满意|覆盖|"
+    r"节约|成本|效率|零重大|从[^，。]{1,12}(?:降|升|提)至"
+)
+
+
+def _looks_like_achievement(text: str) -> bool:
+    """这条 bullet 是否像「成果/业绩」而非「职责」。
+
+    以「负责/协助/参与/支持/配合…」开头的通常是职责；成果要么带数字，
+    要么带强结果词（提升/降低/留存/满意…）。判据收紧是为了不把职责
+    错划到成果里——划错比重划更难看。
+    """
+    t = (text or "").strip()
+    if len(t) < 6:
+        return False
+    if VERB_START_RE.match(t):
+        return False
+    if _ACHIEVE_NUM_RE.search(t):
+        return True
+    return bool(_ACHIEVE_STRONG_RE.search(t))
+
+
+def _split_achievements(items: list[dict]) -> list[dict]:
+    """把每段经历的 bullet 拆成「职责描述」+「工作成果」两组。
+
+    两组都非空才拆（全是职责或全是成果的经历保持原样），避免为了结构化
+    把简历切得零碎。成果按原文保留，不删不改——原格式导出不受影响。
+    """
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        desc = item.get("descriptions")
+        if not isinstance(desc, list) or len(desc) < 2:
+            continue
+        if item.get("achievements"):
+            continue
+        duties, achs = [], []
+        for line in desc:
+            (achs if _looks_like_achievement(line) else duties).append(line)
+        if achs and duties:
+            item["descriptions"] = duties
+            item["achievements"] = achs
+    return items
+
+
 def build_document_from_pdf(extracted: dict) -> dict:
     """把 pdfplumber 提取结果转换为 v2 简历文档。"""
     sections = extracted.get("structure", {}).get("sections", [])
@@ -317,8 +365,10 @@ def build_document_from_pdf(extracted: dict) -> dict:
             buckets["other"].append(line)
             bucket_bold["other"].append(bold)
 
-    resume["workExperiences"] = _parse_work(buckets["workExperiences"], bucket_bold["workExperiences"])
-    resume["projects"] = _parse_projects(buckets["projects"], bucket_bold["projects"])
+    resume["workExperiences"] = _split_achievements(
+        _parse_work(buckets["workExperiences"], bucket_bold["workExperiences"]))
+    resume["projects"] = _split_achievements(
+        _parse_projects(buckets["projects"], bucket_bold["projects"]))
     resume["educations"] = _parse_educations(buckets["educations"])
 
     skill_sentences = [s for s in buckets["skills"] if len(s) >= 2]

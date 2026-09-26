@@ -98,9 +98,34 @@ def diff_content(old_content: Any, new_content: Any) -> list[dict[str, Any]]:
     列表字段按**内容**比对：等长时按位置（纯编辑场景），长度变化时按公共子序列
     识别谁被删、谁被新增。直接按索引比较会把「删掉中间一条」误判成「后面所有
     条目都改了」，原格式补丁随之错位、大片失效。
+
+    「移动」不算改动：同一条文本只是从 descriptions 挪到 achievements（或反之），
+    对原始 PDF 而言文字仍在原处，补丁应保持原样——否则拆分成果模块会把
+    原格式导出搅乱。
     """
     old_map = flatten_content(old_content)
     new_map = flatten_content(new_content)
+    new_by_value: dict[str, set[str]] = {}
+    for p, v in new_map.items():
+        new_by_value.setdefault(v, set()).add(p)
+    old_by_value: dict[str, set[str]] = {}
+    for p, v in old_map.items():
+        old_by_value.setdefault(v, set()).add(p)
+
+    def _moved(old_val: str | None, path: str) -> bool:
+        """该文本是否只是搬到了别的路径（原位内容未变）。"""
+        if not old_val:
+            return False
+        paths = new_by_value.get(old_val)
+        return bool(paths) and path not in paths
+
+    def _relocated(new_val: str | None, path: str) -> bool:
+        """「新增」的文本是否原本就在别处（从一个字段搬到了另一个字段）。"""
+        if not new_val:
+            return False
+        paths = old_by_value.get(new_val)
+        return bool(paths) and path not in paths
+
     changes: list[dict[str, Any]] = []
 
     def _is_item(path: str) -> bool:
@@ -124,7 +149,8 @@ def diff_content(old_content: Any, new_content: Any) -> list[dict[str, Any]]:
                 changes.append({"path": path, "old": val, "new": nv})
     for path, val in new_map.items():
         if not _is_item(path) and path not in old_map:
-            changes.append({"path": path, "old": None, "new": val})
+            if not _relocated(val, path):
+                changes.append({"path": path, "old": None, "new": val})
         elif _is_item(path):
             parent, idx = _split(path)
             new_groups.setdefault(parent, []).append((idx, path, val))
@@ -143,17 +169,18 @@ def diff_content(old_content: Any, new_content: Any) -> list[dict[str, Any]]:
         # 长度变化：公共子序列之外的即为增/删
         keep_a, keep_b = _lcs_keep(old_vals, new_vals)
         for i, (_, op, ov) in enumerate(old_items):
-            if i not in keep_a:
+            if i not in keep_a and not _moved(ov, op):
                 changes.append({"path": op, "old": ov, "new": None})
         for j, (_, np_, nv) in enumerate(new_items):
-            if j not in keep_b:
+            if j not in keep_b and not _relocated(nv, np_):
                 changes.append({"path": np_, "old": None, "new": nv})
     # 旧内容里没有、新内容里新增的列表
     for parent, new_items in new_groups.items():
         if parent in old_groups:
             continue
         for _, np_, nv in sorted(new_items):
-            changes.append({"path": np_, "old": None, "new": nv})
+            if not _relocated(nv, np_):
+                changes.append({"path": np_, "old": None, "new": nv})
     return changes
 
 
@@ -448,6 +475,21 @@ def _is_pure_cjk(s: str) -> bool:
     return bool(s) and all("\u4e00" <= c <= "\u9fff" or c in "（）()·、" for c in s)
 
 
+# 常见标签：删除内容后行内只剩这些（含标点）就是孤立标签，应整行清除
+_ORPHAN_LABEL_RE = re.compile(
+    r"^[\s·•]*(?:工作内容|岗位职责|项目介绍|项目内容|主修课程|职责|内容|专业|学历|备注|描述|主要技能)"
+    r"[：:]?[\s·•]*$"
+)
+
+
+def _only_label_left(remainder: str) -> bool:
+    """删掉内容后，行里剩下的是否只是个标签（如「主修课程：」）。"""
+    r = (remainder or "").strip()
+    if not r:
+        return True
+    return bool(_ORPHAN_LABEL_RE.match(r))
+
+
 def _right_clearance(page, line: dict, span_idx: int, from_x: float) -> tuple[float, bool]:
     """插入点右侧的可用宽度，以及右侧是否还有别的文字。
 
@@ -527,8 +569,13 @@ def _replace_in_line(page, line: dict, raw_old: str, new_val, path: str):
     x, y = _span_baseline(first)
 
     if new_val is None:
-        # 删除：只 redact 受影响区间
-        page.add_redact_annot(union)
+        # 删除：只 redact 受影响区间；若行内只剩孤立标签（如「主修课程：」）则整行清除
+        if _only_label_left(joined.replace(raw_old, "")):
+            page.add_redact_annot(union)
+            for s in spans:
+                page.add_redact_annot(fitz.Rect(s["bbox"]))
+        else:
+            page.add_redact_annot(union)
         page.apply_redactions(images=fitz.PDF_REDACT_IMAGE_NONE)
         return True, None
 

@@ -46,6 +46,8 @@ BUILTIN_SECTIONS: list[dict[str, Any]] = [
             {"key": "jobTitle", "label": "职位", "type": "text"},
             {"key": "date", "label": "时间", "type": "text", "hint": "如 2021-03 – 至今"},
             {"key": "descriptions", "label": "职责描述", "type": "list"},
+            {"key": "achievements", "label": "工作成果", "type": "list",
+             "hint": "能量化的业绩/结果，如「月均到岗 15 人，试用期留存率 92%」"},
         ],
     },
     {
@@ -60,6 +62,7 @@ BUILTIN_SECTIONS: list[dict[str, Any]] = [
             {"key": "jobTitle", "label": "担任角色", "type": "text"},
             {"key": "date", "label": "时间", "type": "text"},
             {"key": "descriptions", "label": "项目描述", "type": "list"},
+            {"key": "achievements", "label": "项目成果", "type": "list"},
         ],
     },
     {
