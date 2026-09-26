@@ -170,6 +170,18 @@ def delete_document(doc_id: str) -> bool:
     return cur.rowcount > 0
 
 
+def clear_all_documents() -> int:
+    """一键清空全部文档（含版本与关联的原始 PDF），返回删除数量。"""
+    docs = list_documents()
+    for d in docs:
+        _remove_source_pdf(d)
+    with _db() as conn:
+        cur = conn.execute("DELETE FROM documents")
+        conn.execute("DELETE FROM document_versions")
+    logger.info("一键清空文档：%d 份", len(docs))
+    return cur.rowcount if cur.rowcount and cur.rowcount > 0 else len(docs)
+
+
 def duplicate_document(doc_id: str) -> dict[str, Any] | None:
     src = get_document(doc_id)
     if not src:

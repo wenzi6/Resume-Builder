@@ -606,6 +606,49 @@ export function bindDataSafety() {
       toastError("备份失败：" + e.message);
     }
   });
+  // 一键清空备份
+  document.getElementById("btnClearBackups").addEventListener("click", async () => {
+    const { backups } = await api.getJson("/api/v1/backups").catch(() => ({ backups: [] }));
+    if (!backups?.length) {
+      toast("当前没有备份");
+      return;
+    }
+    const ok = await confirmDialog(
+      `确定清空全部 ${backups.length} 份备份文件？\n清空后无法从备份恢复（简历内容本身不受影响）。`);
+    if (!ok) return;
+    try {
+      const r = await api.postJson("/api/v1/backups/clear", {});
+      renderBackupList();
+      toastSuccess(`已清空 ${r.removed} 份备份`);
+    } catch (e) {
+      toastError("清空失败：" + e.message);
+    }
+  });
+  // 一键清空全部简历（先自动备份，保证可恢复）
+  document.getElementById("btnClearAllDocs").addEventListener("click", async () => {
+    const { documents } = await api.documents();
+    if (!documents?.length) {
+      toast("当前没有简历");
+      return;
+    }
+    const ok = await confirmDialog(
+      `确定一键清空全部 ${documents.length} 份简历？\n\n` +
+      "· 会先自动备份一次（可用「导入全部」恢复）\n" +
+      "· 对照导入的原始 PDF 也会一并删除\n" +
+      "· 此操作不可撤销");
+    if (!ok) return;
+    try {
+      // 先强制备份，再清空
+      await api.postJson("/api/v1/backups/now", {});
+      const r = await api.postJson("/api/v1/documents/clear-all", {});
+      for (const d of documents) store.clearLocal(d.id);
+      const { app } = await import("../app.js");
+      await app.reloadAfterDelete();
+      toastSuccess(`已清空 ${r.removed} 份简历（已自动备份）`);
+    } catch (e) {
+      toastError("清空失败：" + e.message);
+    }
+  });
   // 查看运行日志（问题定位：把末尾几行发给开发者）
   document.getElementById("btnViewLog").addEventListener("click", async () => {
     const box = document.getElementById("logText");

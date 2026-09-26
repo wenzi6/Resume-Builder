@@ -339,6 +339,8 @@ button { font-family: inherit; }
 .sec-act:hover { background: var(--border); color: var(--text); }
 .sec-act.off { color: var(--faint); }
 .sec-act.danger:hover { background: var(--danger-soft); color: var(--danger); }
+.btn-ghost.danger { color: var(--danger); }
+.btn-ghost.danger:hover { background: var(--danger-soft); border-color: #fecaca; }
 
 /* ============ 文档列表 ============ */
 .doc-new-row { display: flex; gap: 6px; margin-bottom: 10px; }

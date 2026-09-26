@@ -17,6 +17,13 @@ def list_docs():
     return jsonify({"documents": store.list_documents()})
 
 
+@bp.post("/clear-all")
+def clear_all_docs():
+    """一键清空全部文档。调用方负责先备份（前端会先调 /backups/now）。"""
+    removed = store.clear_all_documents()
+    return jsonify({"success": True, "removed": removed, "documents": store.list_documents()})
+
+
 @bp.get("/export-all")
 def export_all_docs():
     """全部文档导出为 ZIP（JSON + 原始 PDF + manifest）。"""

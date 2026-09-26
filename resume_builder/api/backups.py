@@ -35,3 +35,10 @@ def delete_backup(name: str):
     if not bundle.delete_backup(name):
         return jsonify({"error": "备份不存在"}), 404
     return jsonify({"success": True, "backups": bundle.list_backups()})
+
+
+@bp.post("/clear")
+def clear_backups():
+    """一键清空全部备份。"""
+    removed = bundle.clear_backups()
+    return jsonify({"success": True, "removed": removed, "backups": bundle.list_backups()})

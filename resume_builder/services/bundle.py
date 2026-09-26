@@ -150,6 +150,24 @@ def delete_backup(name: str) -> bool:
         return False
 
 
+def clear_backups() -> int:
+    """一键清空全部备份文件，返回删除数量。"""
+    removed = 0
+    for p in sorted(_backup_dir().glob("resumes-*.db")):
+        try:
+            p.unlink()
+            removed += 1
+        except OSError:
+            continue
+    # 附属的 wal/shm 一并清掉
+    for p in sorted(_backup_dir().glob("resumes-*.db-*")):
+        try:
+            p.unlink()
+        except OSError:
+            continue
+    return removed
+
+
 # ---------------------------------------------------------------- 全量导出 / 导入
 
 

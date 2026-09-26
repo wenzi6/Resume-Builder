@@ -207,3 +207,58 @@ def test_delete_backup_keeps_others(client, two_docs):
     client.delete(f"/api/v1/backups/{victim}")
     names = [b["name"] for b in client.get("/api/v1/backups").get_json()["backups"]]
     assert victim not in names and keeper in names
+
+
+# ---------------- 一键清空 ----------------
+
+def test_clear_backups(client, two_docs):
+    """一键清空全部备份。"""
+    bundle.backup_db(force=True)
+    # 同一秒内 backup_db 会因文件名相同而覆盖，手动补一份不同名的
+    extra = bundle._backup_dir() / "resumes-20200101-000000.db"
+    extra.write_bytes(b"%SQLite-x")
+    before = bundle.list_backups()
+    assert len(before) >= 2
+    r = client.post("/api/v1/backups/clear")
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body["removed"] >= 2
+    assert body["backups"] == []
+    assert not extra.exists()
+
+
+def test_clear_all_documents(client, tmp_path, monkeypatch):
+    """一键清空全部简历（含版本与原始 PDF）。
+
+    护栏：clear-all 是批量删除，隔离一旦失效就会毁掉真实数据——
+    这里显式验证真实数据库的文档数不变（曾因漏 patch 模块级绑定出过事故）。
+    """
+    from resume_builder import config
+    from resume_builder.services import documents as store
+
+    real_db = store.DB_PATH
+    real_count = None
+    try:
+        import sqlite3
+
+        with sqlite3.connect(str(real_db)) as conn:
+            real_count = conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
+    except Exception:  # noqa: BLE001
+        real_count = None
+
+    ids = []
+    for i in range(3):
+        r = client.post("/api/v1/documents", json={"title": f"清空测试{i}"})
+        ids.append(r.get_json()["document"]["id"])
+    assert len(store.list_documents()) >= 3
+    r = client.post("/api/v1/documents/clear-all")
+    assert r.status_code == 200, r.get_json()
+    assert r.get_json()["removed"] >= 3
+    assert client.get("/api/v1/documents").get_json()["documents"] == []
+
+    if real_count is not None:
+        import sqlite3
+
+        with sqlite3.connect(str(real_db)) as conn:
+            after = conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
+        assert after == real_count, "clear-all 碰到了真实数据库！"
