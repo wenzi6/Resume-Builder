@@ -14,6 +14,9 @@ from typing import Any, Iterator
 
 from ..config import DB_PATH, DATA_DIR
 from ..schema import normalize_document
+from .. import logging_setup
+
+logger = logging_setup.get_logger("documents")
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS documents (
@@ -230,6 +233,9 @@ def sweep_orphan_source_pdfs(max_age_s: int = 3600) -> int:
             rows = conn.execute("SELECT data FROM documents").fetchall()
     except sqlite3.OperationalError:
         return 0  # 表还未建（极早期调用）
+    # 安全阀：一条文档都没有时绝不清扫。空库 + 有文件的 imports 目录只意味着\    # 异常（连错了库 / 迁移中途），此时删光文件等于数据事故。
+    if not rows:
+        return 0
     referenced = set()
     for r in rows:
         try:
@@ -248,6 +254,7 @@ def sweep_orphan_source_pdfs(max_age_s: int = 3600) -> int:
             if now - p.stat().st_mtime > max_age_s:
                 p.unlink()
                 removed += 1
+                logger.info("清理未引用的原始 PDF：%s", p.name)
         except OSError:
             continue
     # 页面图片缓存：目录名 = PDF stem，无引用的一并清掉

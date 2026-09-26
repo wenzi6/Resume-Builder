@@ -201,3 +201,27 @@ def test_reparse_rejects_non_pdf_doc(client):
 def test_reparse_unknown_doc(client):
     r = client.post("/api/v1/import/reparse", json={"id": "nope"})
     assert r.status_code == 404
+
+
+# ---------------- 区块标题误判回归（正文含关键词被当成标题） ----------------
+
+def test_body_line_containing_keyword_is_not_section_title():
+    """自我评价正文「具备IT招聘和技术岗位工作经验…」含「工作经验」，
+    不能被当成工作经历标题（否则自我评价全被切进工作经历）。"""
+    assert pdf_import._match_section_title("💼 工作经验", True) == "workExperiences"
+    assert pdf_import._match_section_title("工作经验", False) == "workExperiences"
+    # 长句、不加粗、关键词不在行首 → 不是标题
+    assert pdf_import._match_section_title(
+        "具备IT招聘和技术岗位工作经验,前期主要负责华为、中兴相关IT技术岗位招聘", False) is None
+    assert pdf_import._match_section_title(
+        "负责教育行业客户的安全产品支持与日常维护", False) is None
+
+
+def test_join_wrapped_merges_broken_paragraph():
+    """PDF 中途换行的同一段话要合并，但不相干的两行不能粘一起。"""
+    assert pdf_import._join_wrapped(
+        ["具备IT招聘和技术岗位工作经验,前期主要负责华为中兴相关招聘,积累了安全服务", "和云计算相关经验。"]
+    ) == ["具备IT招聘和技术岗位工作经验,前期主要负责华为中兴相关招聘,积累了安全服务和云计算相关经验。"]
+    # 短行开头（如 RESUME）不与后文合并；条目符号不合并
+    assert pdf_import._join_wrapped(["RESUME", "IT招聘专员 面议"]) == ["RESUME", "IT招聘专员 面议"]
+    assert pdf_import._join_wrapped(["第一段完整句子。", "· 这是条目"]) == ["第一段完整句子。", "· 这是条目"]

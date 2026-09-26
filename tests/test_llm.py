@@ -377,6 +377,9 @@ def test_fresh_boot_with_empty_db(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "DB_PATH", tmp_path / "fresh.db")
     monkeypatch.setattr(store, "DB_PATH", tmp_path / "fresh.db")
     monkeypatch.setattr(config, "DATA_DIR", tmp_path)
+    # 必须同步 patch store.DATA_DIR：sweep_orphan_source_pdfs 用的是 documents
+    # 模块级的 DATA_DIR，漏 patch 会让启动清扫跑在真实 data/imports 上，\    # 而临时库是空的 → 被引用集合为空 → 真实 PDF 被当孤儿全部删除！
+    monkeypatch.setattr(store, "DATA_DIR", tmp_path)
     app = create_app()
     client = app.test_client()
     assert client.get("/healthz").status_code == 200
@@ -1016,3 +1019,35 @@ def test_polish_endpoint_accepts_instruction(client, monkeypatch):
         "text": "负责官网开发", "context": "工作经历", "instruction": "突出量化结果"})
     assert r.status_code == 200
     assert r.get_json()["result"] == "ok"
+
+
+def test_fresh_boot_does_not_sweep_real_imports(tmp_path, monkeypatch):
+    """回归（数据事故）：create_app 的启动清扫绝不能跑在真实 data/imports 上。
+
+    曾经的 bug：测试只 patch 了 config.DATA_DIR / store.DB_PATH，漏了
+    store.DATA_DIR —— 清扫用真实目录 + 空临时库，把用户全部原始 PDF 当孤儿
+    删掉。这里同时验证：空库时清扫直接跳过（安全阀）。
+    """
+    from resume_builder import config
+    from resume_builder.services import documents as store
+    from resume_builder import create_app
+
+    real_imports = store.DATA_DIR / "imports"
+    real_pdfs = sorted(real_imports.glob("*.pdf")) if real_imports.is_dir() else []
+
+    fresh = tmp_path / "fresh"
+    fresh.mkdir()
+    monkeypatch.setattr(config, "DB_PATH", fresh / "fresh.db")
+    monkeypatch.setattr(store, "DB_PATH", fresh / "fresh.db")
+    monkeypatch.setattr(config, "DATA_DIR", fresh)
+    monkeypatch.setattr(store, "DATA_DIR", fresh)      # 关键：documents 模块级 DATA_DIR
+    create_app()
+
+    # 真实 PDF 一个都不能少
+    assert sorted(real_imports.glob("*.pdf")) == real_pdfs, "启动清扫误删了真实原始 PDF！"
+
+    # 安全阀：空库 + 有文件也不清
+    (fresh / "imports").mkdir()
+    (fresh / "imports" / "orphan.pdf").write_bytes(b"%PDF-1.4")
+    assert store.sweep_orphan_source_pdfs(max_age_s=0) == 0
+    assert (fresh / "imports" / "orphan.pdf").is_file()

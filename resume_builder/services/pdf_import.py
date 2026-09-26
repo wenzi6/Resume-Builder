@@ -164,6 +164,42 @@ VERB_START_RE = re.compile(r"^(跟进|负责|协助|参与|支持|配合|编写|
 LABEL_PREFIX_RE = re.compile(r"^(工作内容|岗位职责|项目介绍|项目内容|职责|内容|主修课程|专业|学历)[：:]?")
 
 
+def _join_wrapped(lines: list[str]) -> list[str]:
+    """合并被 PDF 换行切碎的同一段话。
+
+    判据：上一行没有结束标点、且下一行较短、不带条目符号——典型的中途换行。
+    只用于自我评价/其他信息这类「段落」内容，列表型区块不适用。
+    """
+    out: list[str] = []
+    for line in lines:
+        if (out and len(out[-1]) >= 20 and len(line) <= 24
+                and not re.match(r"^[·•\-\d（(]", line)
+                and not re.search(r"[。！？；.!?;]$", out[-1])):
+            out[-1] = out[-1] + line
+        else:
+            out.append(line)
+    return out
+
+
+def _match_section_title(line: str, bold: bool) -> str | None:
+    """判断一行是否是区块标题，返回区块 key 或 None。
+
+    光看关键词会误判：自我评价正文「具备IT招聘和技术岗位工作经验…」含「工作经验」，
+    会被当成工作经历标题，把后面内容全切走。因此要求同时满足标题特征：
+    整行短（≤16 字）、关键词在行首、或该行加粗/标题级——三者至少其一。
+    """
+    stripped = line.strip()
+    if not stripped:
+        return None
+    for key, titles in SECTION_KEYWORDS:
+        for t in titles:
+            if t not in stripped:
+                continue
+            if len(stripped) <= 16 or stripped.startswith(t) or bold:
+                return key
+    return None
+
+
 def build_document_from_pdf(extracted: dict) -> dict:
     """把 pdfplumber 提取结果转换为 v2 简历文档。"""
     sections = extracted.get("structure", {}).get("sections", [])
@@ -252,11 +288,7 @@ def build_document_from_pdf(extracted: dict) -> dict:
     bucket_bold["other"] = []
     current = None
     for line, bold in raw:
-        matched = None
-        for key, titles in SECTION_KEYWORDS:
-            if any(t in line for t in titles):
-                matched = key
-                break
+        matched = _match_section_title(line, bold)
         if matched:
             current = matched
             continue
@@ -276,10 +308,10 @@ def build_document_from_pdf(extracted: dict) -> dict:
         {"skill": s, "rating": 3} for s in skill_sentences[:10]
     ]
     resume["skills"]["descriptions"] = skill_sentences[10:30]
-    resume["selfEvaluation"]["descriptions"] = buckets["selfEvaluation"][:12]
+    resume["selfEvaluation"]["descriptions"] = _join_wrapped(buckets["selfEvaluation"][:12])
 
     # 5) 兜底：未能归类的行放入「其他信息」
-    leftovers = [l for l in buckets["other"] if len(l) >= 4][:10]
+    leftovers = _join_wrapped([l for l in buckets["other"] if len(l) >= 4][:10])
     resume["custom"]["descriptions"] = leftovers
 
     return resume
