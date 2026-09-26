@@ -1,271 +1,192 @@
-# Resume Studio 重构 · 交付文档（HANDOFF）
+# Resume Studio 交付文档（HANDOFF）
 
-> **用途**：把项目完整交接给下一个 Agent。
-> **阅读顺序**：§1 三十秒摘要 → §4（Phase 2 待办）→ 其余按需查。
-> 配套文档：`README.md`（产品说明 + 快速开始）｜`docs/SPEC.md`（完整规格）｜`docs/research/`（4 路调研原始产出）
+> **用途**：把项目完整交接给下一位 Agent。
+> **生成时间**：2026-09-27　|　**HEAD**：`4842990`　|　分支 `master` → `origin/main`
+> **配套**：`README.md`（产品说明书）｜`docs/SPEC.md`（完整规格）｜`docs/research/`（早期调研）
+> **阅读顺序**：§1 摘要 → §3 代码地图 → §4 当前状态与坑 → §8 建议下一步
 
 ---
 
 ## 1. 三十秒摘要
 
-**项目**：`resume-builder` —— 排版优先的简历产品（Python + Flask 后端 + 原生 ES Modules 前端，无构建步骤）。
+**项目**：`resume-builder`（Resume Studio）—— 本地单用户简历工作台。
 
-**当前状态（2026-09-24）**：**Phase 1（排版）全部完成**：
+- **启动**：`PYTHONPATH=. python app.py` → http://localhost:5000（Windows 已验证，仅绑 127.0.0.1）
+- **技术栈**：Python + Flask + 原生 ES Modules 前端（**无构建步骤**）+ SQLite + Chromium（PDF 渲染）+ PyMuPDF（PDF 补丁）
+- **当前状态**：**完整产品水准**。pytest **306 passed / 1 skipped**；前端 13 文件语法检查通过；视觉基线齐备
+- **GitHub**：https://github.com/wenzi6/Resume-Builder（HTTPS + Git Credential Manager，push 不弹窗）
 
-| 事项 | 状态 |
-|---|---|
-| PDF 中文字体 Type3 降级（原 P0 阻塞） | ✅ **已解决**：CFF OTF → glyf TTF + 剥离部首 cmap，全模板 Type0、中文可检索 |
-| 前端编辑器（`static/`） | ✅ **已从零完成**：12 个文件，全部交互经真实浏览器验证 |
-| 正式测试套件 | ✅ **pytest 237 用例全绿**（字体 / 分页 / ATS / 迁移 / PDF 导入 / 视觉回归 / 新功能 / 对照导入 / 原格式导出 / AI / 协议格式 / 流式 / 数据安全 / 页数一致性回归） |
-| 视觉走查 | ✅ 6 套模板 → PDF → PNG 逐套检查通过，且有基线像素回归测试 |
-| 优化轮（导出自检 / 自动适应 / 自有字体 / 版本历史 / HTML 导出 / undo / i18n / CI） | ✅ **已完成并经浏览器 10/10 走查**，详见 §3.0 |
-| README / git init / 清理 | ✅ 已完成（`.gitignore` 规范，含 CI 工作流） |
-
-**下一个 Agent 要做的事**：只剩 **Phase 2 产品化剩余项**（§4.2）：JD 关键词匹配 / ATS 检查、LLM 润色、模板预览图。用户已确认的技术决策见 §2，**不要重新讨论**。
+**核心能力**：PDF 对照导入（原格式保留）+ **原格式实时预览**、6 套模板、AI 五项能力（用户自带 Key）、对话改简历、多配置管理、数据安全三件套、运行日志、一键清空。
 
 ---
 
-## 2. 背景与已确认决策
+## 2. 用户与沟通方式（重要）
 
-| 决策点 | 选择 |
-|---|---|
-| 技术栈 | **保留 Python + Flask**。本机 Python 3.12.10 |
-| AI 能力 | **接入 LLM API**（OpenAI 兼容协议，用户提供 key）→ Phase 2 |
-| 节奏 | **两步走**：Phase 1 排版优先（✅ 已完成），Phase 2 产品化 |
-| 前端形态 | 原生 ES Modules，**无构建步骤**（双击 `python app.py` 即用） |
+- **非技术终使用者**，Windows，反馈方式 = **截图 + 一句话**（截图放 `E:\谷歌下载\`）
+- 语言：中文
+- 在意优先级：**排版完美 > 导入准确 > AI 能力 > 数据安全**
+- **典型处理范式**（本 sessions 验证有效）：
+  1. 看截图定位 → 写 `output/_diag.py` 直接调 service 复现（**别急着开浏览器**）
+  2. 修 → 加回归测试 → 跑全量 → 提交推送
+  3. **重启服务**（改 Python 必须；纯静态文件也要提醒用户 Ctrl+F5）
+  4. 交付时附：改了什么 / 为什么 / 验证结果 / **用户需要做什么**
 
-**环境事实**：Windows，项目根 `E:\pythonProject\resume-builder`，git 仓库已初始化。Playwright Chromium 151 可用。端口 5000。
-
----
-
-## 3. ✅ 已验证基线（本轮实测）
-
-| 验证项 | 结果 |
-|---|---|
-| `python -m pytest tests/ -q` | ✅ **78 / 78 通过**（约 40s，含真实 Chromium 渲染） |
-| `python app.py` 真实启动 + 前端走查 | ✅ 真实浏览器加载零 console 错误；9/9 交互用例通过（编辑联动 / 自动保存 / 区块显隐排序增删 / 自定义区块全流程 / JSON 应用 / Ctrl+S / 模板切换） |
-| 6 套模板渲染（×2 示例） | ✅ 语义标记完整（`.r-sheet`/`.rsec[data-section]`/`.ritem`/`.rlist`…） |
-| 6 套模板 PDF 字体 | ✅ 全部 Type0 子集 + 中文可检索（pymupdf 与 pdfplumber 双库验证） |
-| 分页 | ✅ 1/2/3 页构造页数正确、无空白页、手动分页点正确换算页数 |
-| 导出 pdf / docx / json | ✅ 魔数正确，前端 blob 下载触发正常 |
-| 导入 JSON（v2 + v1 迁移） | ✅ v1 数据正确迁移；导入换发新 id 不覆盖已有简历 |
-| 旧版 `/api/*` 兼容层 6 端点 | ✅ 全部桥接成功 |
-| 编辑器导入 PDF / 模板 | ✅ 后端单测通过（前端弹窗交互已走查） |
-
-### 3.0 优化轮新增能力（2026-09-24 晚，全部经真实浏览器验证）
-
-| 能力 | 后端 | 前端 |
-|---|---|---|
-| 导出 PDF 字体自检 | `api/export.py` `_pdf_quality_warnings()` → `X-Resume-Warnings` 响应头 | `api.js postDownload` 读取并 toast |
-| 一键适应一页 | `services/autofit.py` 压缩阶梯迭代测量（行距→字号→间距→边距） | 设计面板「⚡ 自动适应一页」 |
-| 用户自有字体 | `services/font_manager.py`（上传→CFF 转换→部首清洗→注册）+ `api/fonts.py` | 设计面板字体组（列表 / 上传 / 使用 / 删除） |
-| 历史版本 | `services/documents.py` `document_versions` 表（每文档 20 份快照）+ WAL | 简历列表「⏱」→ 版本弹窗（恢复） |
-| HTML 自包含导出 | `exporters/html_export.py`（字体 base64 内嵌） | 顶栏「存 HTML」 |
-| 撤销 / 重做 | —（纯前端） | `store.js` 编辑突发快照 + Ctrl+Z / Ctrl+Y |
-| 分页线精确化 | `pdf_worker.py` 返回 `effTop` / `breaks` | `pagination.js` 打印坐标反算 |
-| i18n（中 / 英） | — | `static/js/i18n.js` + 顶栏「EN / 中」 |
-| PDF 对照导入 | `api/imports.py` 落盘原始 PDF + `services/source_pdf.py` 逐页渲染 + 删除/复制/孤立清扫 | 右栏「原始格式」视图（页面图片，全环境一致）+ 视图切换 + 原生查看器入口 |
-| 原格式导出 | `services/pdf_patch.py`（Span 级文本替换：改/删/未定位分级处理）+ export mode=original | 「导出 PDF」默认原格式（修改打进原 PDF），「模板排版」为次要按钮 |
-| 临时文件清理 | `engine/pdf.py sweep_stale_renders()`（启动时清扫 >1h 残留） | — |
-| photo 安全 | `sections.py _safe_photo_src()`（仅 http(s) / 站内路径） | — |
-| CI | `.github/workflows/ci.yml`（Windows + Playwright + 前端语法检查） | — |
-| 性能：常驻 worker 池 | `engine/pdf.py _WorkerPool`（JSON 行协议，Chromium 复用；崩溃自重启 + 单次子进程兜底；RLock） | 测量 ~1.6s→~0.4s |
-| 数据安全 | `services/bundle.py`（SQLite backup API + ZIP 全量导出入 + 启动/30min/退出自动备份，留 10 份）+ `api/backups.py` | 简历页签：搜索 / 导出全部 / 导入全部 / 备份列表与恢复 |
-| AI 流式 | `llm.chat_stream`（四种格式 SSE delta 解析）+ `/api/v1/llm/stream`（线程+队列） | 润色 / 生成逐段显示 |
-| 生产服务器 | waitress（多线程；FLASK_DEBUG=1 仍 dev） | — |
-| 前端检查 | `scripts/check_js.mjs` + package.json type=module + `// @ts-check` | CI 必过 |
-| ✨ AI 助手（含获取模型列表 `GET /llm/models`、窗口可缩放） | `services/llm.py`（urllib 零依赖，**四种协议格式适配器**：openai/azure/anthropic/gemini，`_http_post` 可 mock）+ `api/llm.py` | 顶栏「✨ AI」面板四页签 + 24 个服务商预设分组 + 格式选择器 + 字段级润色按钮 |
-
-**修过的坑（代码已验证，勿重复排查）**：
-
-| # | 症状 | 根因 | 修复 |
-|---|---|---|---|
-| 1 | 表单编辑不进预览 | `setByPath(store.doc.content, path)` 但 path 已含 `content.` 前缀 → 写进嵌套的 `content.content` | 改 `setByPath(store.doc, …)` |
-| 2 | 保存后表单写入失效 | `saveNow()` 用服务端返回文档整体替换 `store.doc`，已渲染表单持有旧对象引用 | 保留客户端对象，仅同步 `updatedAt` |
-| 3 | 导入 JSON 覆盖原简历 | PUT 按 id upsert，导入文档带旧 id | `/api/v1/import/json` 换发新 uuid |
-| 4 | `sample_general()` 被污染 | `sample.py _build` 浅合并，返回文档与模块级 `_SAMPLE_GENERAL` 共享列表 | `copy.deepcopy(content)` |
-| 5 | tech 模板出现 Type3 | 等宽字体栈 `ui-monospace, "Cascadia Mono", "Consolas", monospace` 前两个回退不可嵌入 | 改 `"Consolas", "Courier New", "Noto Sans SC", monospace` |
-| 6 | 页码徽章不计手动分页 | measure JS 只按 scrollHeight 算页数，`.r-pagebreak` 高度为 0 | 累计页尾浪费模型换算有效坐标 |
-| 7 | `verify_pdf_fonts` 永远 ok | Type3 的 basefont 是空串被 `if basefont:` 过滤 | 不过滤空名 + 要求提取出真正汉字（`[\u4e00-\u9fff]`） |
-| 8 | 表单改名后 Ctrl+Z 无效 | 撤销换了文档对象但表单不重渲染，输入框显示旧值 | `setDocument` 发 `doc-swapped` 事件 → 表单 / 区块树重画 |
-| 9 | undo 拍到的是变更后的值 | `touch()` 在 mutate 之后调用，快照已是新值 | 改为「突发静默后固化 `_lastStable`，突发开始把它入栈」 |
-| 10 | 分页模式不画线 | 进入时 `pageInfo` 非空（过期的 1 页数据）就不重新测量 | 进入分页模式**总是**重新测量；结果更新时重画覆盖层 |
-| 11 | 压缩阶梯 0.86/0.84/0.82/0.80 四档空转 | schema 把 fontScale 硬钳到 ≥0.90 | `DESIGN_LIMITS.fontScale` 下限放宽到 0.80（8.4pt 仍是可读下限） |
-| 12 | `api.getJson is not a function` | `api` 对象没挂基础方法，designPanel / sidebar 直接调 | api 对象补 `getJson/postJson/putJson/del` |
-| 13 | 对照导入删除文档后 PDF 残留 | Windows 下 `/data/` 路由句柄短暂锁文件，unlink 静默失败 | 删除重试 3 次 + 启动时孤立文件/页面缓存清扫 |
-| 17 | 空数据库启动即崩 | `sweep_orphan_source_pdfs` 跑在 `init_db` 之前，新机器无表 | init_db 提前 + 清扫对缺表静默 + 回归测试 |
-| 18 | worker 池自死锁 | `request()` 持非可重入锁时调用 `close()` 再抢同锁 → 全量测试挂起 | 改 `threading.RLock` + 回归测试 |
-| 19 | 备份跳过判断失效 | SQLite 备份文件字节布局不同，md5 比对永远不等 | 改逻辑签名（文档数 + max updatedAt + 版本数） |
-| 20 | bundle 模块绑定旧路径 | `from .documents import DB_PATH` 导入时绑定，测试 monkeypatch 失效 | 运行时 `_store.DB_PATH` / `config.DATA_DIR` 动态读 |
-| 14 | 无头 Chromium 的 PDF 插件不渲染 | 对照视图原用 iframe 直显 PDF，无头环境不可靠 | 改为服务端 pymupdf 渲染逐页 PNG（dpi 需传 int）+ 「原生查看器打开」入口 |
-| 15 | 编辑 app.js 时多了一个 `}` | bindStoreEvents 被提前闭合，后续 store.on 全部孤立 → 整个编辑器 JS 挂掉 | `node --input-type=module --check` 加入验证流程；浏览器 import 逐个模块定位 |
-| 16 | PDF 导入解析质量差 | 词按无空格 join 丢视觉间隔；email 正则 `\w` 匹配汉字把电话/地址糅进邮箱；公司职位不拆 | 词间水平间距 >4px 加空格；email 改 ASCII 且字母开头；机构后缀/职位词拆分 + 日期区间尾巴还原 |
+> ⚠️ 用户的截图常常是**修复部署前的旧渲染**。排查「看不到效果」类反馈时，先用当前代码跑一遍确认，再让用户刷新。
 
 ---
 
-## 4. 待完成（Phase 2 产品化）
-
-### 4.1 字体问题的完整结论（已完成，存档备查）
-
-Chromium PDF 后端对 CFF 轮廓 web font 降级为 Type3。解决链：
-
-1. `tools/otf2ttf.py` 把 5 个 Noto OTF 转成 glyf TTF（每文件约 30–50s，**必须后台跑**）
-2. **康熙部首 cmap 缺陷**（调研盲区，本轮实证）：Noto CJK 的 cmap 中 208 个部首（U+2F00–U+2FDF）与汉字共用字形，Chromium 构建 ToUnicode 时按字形反查会命中部首码位（⾼ U+2FBC 而非 高 U+9AD8）→ pdfplumber/pdfminer 提取乱码（pymupdf 不受影响）。`tools/strip_radical_cmap.py` 已剥离（每字体 1316 条 cmap 记录）
-3. `fonts/` 只保留 `.ttf`，`engine/tokens.py` 的 `FONT_FILES` 已指向 `.ttf`
-4. 等宽字体栈必须指向可嵌入字体（见 §3 坑 #5）
-
-**回归测试**：`tests/test_pdf_fonts.py`（改字体相关代码后必跑）。
-
-### 4.2 Phase 2 剩余功能（按建议顺序）
-
-> 优化轮已完成：自有字体上传、自动适应一页、历史版本、HTML 导出、导出自检、undo、i18n、CI。
-> **交付优化轮已完成**（A 性能 / C 数据 / B 检查 / D 流式 + E/F 打磨）：常驻 worker 池、数据安全三件套（备份可删除可恢复）、前端 ESM 语法检查、AI SSE 流式、waitress、文档搜索。
-> **增值功能轮已完成**（2026-09-25）：纯本地 JD 匹配（`services/analyze.py`，离线 ATS 检查）、AI 对话式迭代 + 批量润色、模板预览图（`tools/gen_template_previews.py`）、排版深度（标题独立字体 `headFont` + 区块级覆盖 `design.columns/hideTitle`）。**§4.2 已清空，项目达到完整交付水准。**
-> **AI 轮已完成**：用户自带 Key 的 AI（生成 / 建议 / JD 定制 / 字段润色）；支持 24 个服务商预设与四种 API 协议格式（OpenAI 兼容 / Anthropic 原生 / Gemini 原生 / Azure），新增协议只需在 `_FORMATS` 注册一组 build/parse。
-> **已决策保留**：`/api/*` 旧版兼容层继续保留（用户可能还开着 v1 页面，删除是产品决策不是技术决策）。
-
-1. **纯本地 JD 关键词匹配 / ATS 检查**（`services/analyze.py` + `api/analyze.py`）
-   - 不依赖 LLM 的本地版：输入 JD → 提取关键词（硬技能 > 教育 > 职位 > 软技能）→ 与简历比对 → 匹配率 + 缺失建议
-   - 与 AI 的 `/llm/tailor` 互补（一个免费离线、一个深度改写）；建议匹配率阈值 ≥75%
-2. AI 功能增强（可选）：流式输出、多模型切换、对话式追问、批量润色整个区块
-3. 模板预览图：每套模板一张 `preview.png`，模板菜单显示（可复用 `test_visual_regression` 的渲染逻辑生成）
-
----
-
-## 5. 前端编辑器现状（`static/`，已交付）
+## 3. 代码地图
 
 ```
+app.py                          入口 → resume_builder.main()
+resume_builder/
+  __init__.py                   应用工厂：日志初始化 / 蓝图 / 备份线程 / 全局 errorhandler
+  config.py                     DATA_DIR / FONTS_DIR / DB_PATH / PORT / ALLOWED_ORIGINS
+  schema.py                     ★文档 schema、DEFAULT_DESIGN、normalize_document、
+                                 _normalize_content（★skills/free/simple 合并逻辑）、
+                                 _clean_section_design（★区块级 design 白名单）
+  registry.py                    ★内置区块定义（字段/类型/标签）——加字段改这里
+  logging_setup.py               轮转日志 data/logs/resume-studio.log（5MB×3）
+  api/                           蓝图：documents / render / export / imports / fonts /
+                                 llm / analyze / backups / logs / legacy / templates
+  services/
+    documents.py                 文档 CRUD、版本历史、原始 PDF 生命周期、clear_all_documents
+    pdf_import.py                ★PDF 解析：分桶 / _parse_work / _parse_projects /
+                                 _parse_educations / _split_achievements / detect_section_titles
+    pdf_patch.py                 ★★原格式补丁（**最复杂、bug 最集中**，800+ 行）
+    source_pdf.py                原格式页面渲染（按内容哈希缓存 PNG）
+    llm.py                       AI 能力 + chat_stream / chat_stream_rich（思考流）
+    analyze.py                   本地 JD 匹配（不调 AI）
+    bundle.py                    备份 / 全量导出导入
+  engine/
+    pdf.py                       Chromium 渲染 + 常驻 worker 池
+    sections.py                  ★区块渲染（render_array / render_free / RENDERERS）
+    base_css.py                  ★模板基础 CSS（.rfree / .ritem-ach / 列表标记 / 成果分组）
+    tokens.py                    字体（FONT_FILES 只允许 glyf TTF）
 static/
-├── editor.html              # 页面骨架（顶栏 + 三栏 + 4 个弹窗 + toast 容器）
-├── editor.css               # 编辑器样式（与简历模板 CSS 完全分离）
-└── js/
-    ├── app.js               # 入口：boot / 顶栏 / 模板菜单 / 页签 / 快捷键
-    ├── store.js             # 状态 + 防抖（预览 300ms / 保存 800ms / 页码 1.4s）+ localStorage 双写
-    ├── api.js               # fetch 封装 + 全部端点
-    └── components/
-        ├── sidebar.js       # 区块树（拖拽/排序/显隐/重命名/删除）+ 文档列表 + 确认弹窗
-        ├── form.js          # schema 驱动表单（text/date/textarea/list/rating × object/array/skills/simple）
-        ├── designPanel.js   # 设计参数面板（compact 时滑块联动禁用并显示生效值）
-        ├── preview.js       # iframe srcdoc 预览 + 页码徽章 + 缩放
-        ├── pagination.js    # 分页模式：注入分页线 + 区块「在此分页」按钮 + 建议分页一键应用
-        ├── jsonEditor.js    # JSON 编辑弹窗 + 导入弹窗（JSON/PDF/模板）
-        └── toast.js         # 通知
+  editor.html                    单页外壳（所有弹窗）
+  editor.css
+  js/app.js                      boot / store 事件 / 原格式实时预览 / 视图切换
+  js/store.js                    ★全局状态 + 防抖（touch→300ms 预览 / 800ms 保存）
+  js/components/                 form / sidebar / designPanel / aiPanel / preview /
+                                 pagination / jsonEditor / toast
+  js/errorReporter.js            前端错误 → 服务端日志
+tests/                           306 用例 + baselines/ 视觉基线
+output/                          临时产物（gitignored）
 ```
-
-**已验证的交互**：编辑→预览联动、自动保存状态、区块显隐/排序/增删/重命名、自定义区块全流程（含内容进预览）、JSON 应用、Ctrl+S、模板切换（含主题色联动）、compact/dateAlign/accent/serif 设计控件、分页模式（两页内容出分页线 + 按钮激活态 + 应用建议）、导出 PDF/Word/JSON 下载、JSON 导入（新建文档）、文档列表切换/复制/删除、刷新后恢复。
-
-**关键约定**：
-- 表单路径统一为 `content.<section>.<idx>.<field>`，写入 `store.doc` 后 `store.touch()`
-- `store.doc` 对象在保存后**不整体替换**（闭包引用问题，见 §3 坑 #2）
-- 预览 iframe 同源（`srcdoc` + `/fonts` 相对 URL），可直接访问 `contentDocument`
-- 空数组区块在预览中不渲染（内容为空 → 自然实现「一页」约束），加条目并填写后才出现
 
 ---
 
-## 6. 架构参考
+## 4. 当前状态
 
-### 6.1 渲染管线
+### 4.1 近轮次已完成
 
-```
-normalize_document(doc)                      # schema.py：收敛形状 + v1 迁移
-  → list_templates() / get_template(id)      # 扫描 templates/*/template.json
-  → render_body_html()                       # sections.py：区块 → 规范化 HTML
-      ├─ 每个区块 → .rsec/.ritem/.rlist 语义标记
-      └─ pageBreaks 中的 key → 前插 <div class="r-pagebreak">
-  → Jinja2 渲染 <template>/layout.html       # 只写结构：top/sidebar/main 三槽位
-  → 组装完整 HTML：
-      @font-face   preview→/fonts，pdf→file:/// 绝对路径（.ttf）
-      @page        { size: A4; margin: <mm> }   ← 字面量，不用 CSS 变量
-      :root        设计令牌 CSS 变量
-      base_css     重置 + 语义标记默认样式 + 中文排版 + 打印分页规则
-      layout.css   模板视觉差异化
-```
+| 功能 | 要点 |
+|---|---|
+| PDF 导入公司/职位精确拆分 | 「加粗行=公司+日期 / 非加粗短行=职位」；`detect_section_titles` 采用 PDF 原区块名 |
+| 教育背景保留「主修课程：」标签 | 备注行不剥标签；字段改名「备注 / 主修课程」 |
+| 区块改名 / 隐藏标题 / 隐藏区块 | 同步进原格式预览与导出（`_section_changes`） |
+| 删除条目 / 删整个区块 | diff 按**内容**（LCS），不按索引 |
+| 孤立圆点残留 | 文字圆点 + **矢量圆点**（`get_drawings` + `_bullet_art_rects`）双路清除 |
+| 工作成果模块 | 导入自动拆分职责/成果；小标题复用 `ritem-sub`（**与职位同款、随模板变化**）+ 可自定义 + 带冒号 |
+| 技能区自由大框 | 星级/pill 全去掉；一个多行输入 + `.rfree` 文本块 |
+| 列表标记自定义 | dot/dash/arrow/none/custom，全局 + 区块级 |
+| AI 对话改简历 | 字段清单防瞎编 / 差异卡片 / 逐条+全部应用 / 改完定位高亮 / Ctrl+Z |
+| 新增内容在原格式可见 | 有空间插入；放不下画绿色虚线标注框（`unplaced`） |
+| 运行日志 | 后端异常堆栈 + 前端 JS 错误 + API 5xx；「查看日志」对话框 |
+| 一键清空 | 简历列表（先自动备份）+ 备份列表 |
+| 多配置管理 | AI 配置多套命名、自动保存、切换/新建/删除 |
 
-**核心设计**：所有模板共享同一套区块 HTML 标记，视觉差异**只**由模板 CSS 决定。好处：排版质量一致、打印规则只写一份、自定义区块自动获得全部模板支持。
+### 4.2 ⚠️ 待办 / 风险点（**必读**）
 
-### 6.2 slot 分配
+1. **`pdf_patch.diff_content` 的「移动」识别漏过三次分支**（列表删除、列表新增、**标量删除/替换**）。每次漏都导致原格式预览大片内容消失（技能整段没了就是这么来的）。
+   → **改这个函数时，四个分支都必须有 `_moved` / `_relocated` 判断**：标量删除、标量替换、列表增、列表删。
+2. **`_append_new_line` 只处理「行内有垂直空间」**；放不下时靠前端标注框。用户反馈「加了内容原格式看不到」时，先看工具条是「已同步 N 处」还是「N 处新内容放不进原版式（已在页面绿框标注）」。
+3. **旧文档的 sections 是快照**，新字段靠 `normalize_document` 在**保存时**刷新。用户不保存就不刷新——引导点「↻ 重新解析」或重新导入。
+4. **视觉基线**：改 `engine/base_css.py` 或任何模板 CSS 后必须 `REGEN_BASELINES=1 ... test_visual_regression.py` 重建。
+5. **`data/imports/` 曾被测试误删**（见 commit `e0a2aef` 的修复：测试漏 patch `store.DATA_DIR`）。现有空表安全阀 + 回归用例。**跑任何涉及 `create_app()` 的测试前，确认夹具 patch 了该服务模块级的 `DATA_DIR`**。
+6. **Git 推送偶发 TLS 错误**：重试即可，本地 commit 不丢。
 
-`template.json` 声明 `slots: {top:[...], sidebar:[...], main:[...]}`，未列出的进 `main`。`layout.html` 用 `top_sections` / `sidebar_sections` / `main_sections` 取用。注意 `body_class` 是加在 `.r-sheet` 上（不是 `<body>`）。
+---
 
-### 6.3 iframe 内可用的语义标记（分页 UI 靠这些定位，勿改）
+## 5. 环境坑（都踩过，勿重复）
 
-```
-.r-sheet                页面容器（A4 纸张，794×1123px @96dpi）
-  .rsec[data-section]   每个区块（profile/workExperiences/projects/educations/skills/selfEvaluation/custom/自定义key）
-    .rsec-title         区块标题
-    .rsec-body
-      .ritem            条目（工作/项目/教育的一条记录）
-        .ritem-head > .ritem-heading(.ritem-title + .ritem-sub) + .ritem-date
-        .rlist > li     职责描述列表
-      .rskills > .rskill > .rskill-name + .rrate
-      .rtag-row > .rtag 技能标签
-  .r-pagebreak          手动分页锚点（高度 0，break-before: page）
-```
-
-### 6.4 数据模型
-
-```python
-Document = {
-  "id": "uuid hex", "title": str, "templateId": str,
-  "design": {...},                  # fontFamily/fontScale/lineHeight/sectionGap/pageMargin/accent/dateAlign/showPhoto/compact
-  "sections": [ SectionConfig ],    # 顺序即渲染顺序
-  "content": {...},                 # 各区块数据
-  "pageBreaks": [sectionKey, ...],  # 手动分页点
-  "version": 2, "createdAt": float, "updatedAt": float,
-}
-SectionConfig = {"key","title","type":"object|array|simple|skills","fields":[FieldDef],"visible":bool}
-FieldDef = {"key","label","type":"text|date|textarea|list|rating"}
-```
-
-内置区块（`registry.py`，7 个）：`profile`(object) / `workExperiences`(array) / `projects`(array) / `educations`(array) / `skills`(skills) / `selfEvaluation`(simple) / `custom`(simple)。
-
-**旧数据兼容**：`schema.migrate_legacy()` 转 v1 的 `_sections`+扁平 content；`json_io.import_document()` 接受新版信封/裸文档/v1 三种输入。
-
-### 6.5 设计参数默认值
-
-| 字段 | 默认 | 范围 |
+| # | 坑 | 规避 |
 |---|---|---|
-| `fontFamily` | `sans` | sans / serif |
-| `fontScale` | 1.0 | 0.90–1.15 |
-| `lineHeight` | 1.45 | 1.20–1.80 |
-| `sectionGap` | 18 | 8–32 px |
-| `pageMargin` | 20 | 12.7–25 mm（硬下限 0.5in） |
-| 21 | 分页页数与实际导出不符（用户报告） | 三重根因：① 测量用 print 模拟但 `.r-sheet` width:auto 按视口 1280px 布局，换行与真实打印完全不同；② 未模拟 break-inside:avoid 挪页 / 超高区块先挪后拆 / 双栏独立流；③ worker 中文警告输出被父进程 GBK 解码崩溃 | 视口设为 A4 内容宽度；JS 原子级分页模拟；**页数改为实际渲染 PDF 的 ground truth**；worker 输出 ensure_ascii + encoding=utf-8 |
-| 22 | JSON 应用后导出旧数据 | setDocument 不标记 dirty，按 id 导出拿到服务端旧文档 | applyJson 后显式 saveNow |
-| `accent` | `#0f766e` | hex |
-| `dateAlign` | `right` | right / below |
-| `showPhoto` | false | bool |
-| `compact` | false | bool（一键压缩：0.94/1.32/12px/15mm） |
+| 1 | `ctx_execute` 沙箱走 **PowerShell**，heredoc 不可用 | 含中文的临时脚本一律用 **write 工具**写文件，再用 bash 跑 |
+| 2 | bash heredoc 会把 `\n` 转成真换行 | 写含 `\n` 的代码用**编辑工具**，别用 heredoc |
+| 3 | Python 脚本批量 `str.replace` **静默失败**（断言在但写盘前抛异常 / 匹配不到） | 替换后**必须 grep 验证**；已因此漏过 3 次 |
+| 4 | 用「找下一个 function」删函数，若目标是文件里最后一个会把其后所有 `export` 删掉（form.js 事故） | 删函数后 `grep -c "^export"` 核对数量 |
+| 5 | `dataset.xxxYyy` → 属性是 `data-xxx-yyy`，`querySelectorAll("[data-xxxYyy]")` 永不匹配 | 用连字符形式 |
+| 6 | Windows 中文路径 PyMuPDF C 层不接受 | 诊断脚本先把 PDF 复制到 temp 用 ASCII 名 |
+| 7 | **Flask 无热重载** | 改 Python 后必须重启服务再测 UI |
+| 8 | 测试会写真实 DB（UI 验收脚本） | 跑完清理（`output/_cleanup.py` 模式），别把测试文档留给用户 |
+| 9 | Playwright 点击被弹窗遮挡 | 操作前 `document.getElementById('aiOverlay').hidden = true` |
+| 10 | 同一秒内 `backup_db(force=True)` 文件名相同互相覆盖 | 测试造多份备份要手动写不同名文件 |
 
 ---
 
-## 7. 测试与运行
+## 6. 数据与文件位置
+
+| 路径 | 内容 | gitignored |
+|---|---|---|
+| `data/resumes.db` | 全部文档 + 版本历史 | ✅ |
+| `data/backups/` | SQLite 备份（保留 10 份） | ✅ |
+| `data/imports/` | 对照导入的原始 PDF + 渲染缓存 PNG | ✅ |
+| `data/logs/resume-studio.log` | 运行日志 | ✅ |
+| `data/llm_configs.json` / `llm_configs.json` | AI 配置（含 Key） | ✅ |
+| `fonts/` | 内置 Noto Sans/Serif SC（OFL） | 部分（只提交 ttf） |
+| `output/` | 临时产物 | ✅ |
+
+> ⚠️ `data/resumes.db` 有**用户真实简历**。任何批量删除前先备份。
+
+---
+
+## 7. 提交与部署流程
 
 ```bash
-cd E:\pythonProject\resume-builder
-$env:PYTHONPATH = 'E:\pythonProject\resume-builder'   # 必须，否则 ModuleNotFoundError
+# 1. 验证
+PYTHONPATH=. python -m pytest tests/ -q
+node scripts/check_js.mjs
 
-python app.py                        # 启动（http://localhost:5000）
-python -m pytest tests/ -q           # 78 用例（PDF 用例真实起 Chromium，约 40s）
-python tests/debug_pdf_fonts.py      # 诊断 PDF 字体原始信息 + 页面图
+# 2. 提交（中文信息，写清根因）
+git add -A
+git -c user.name="Resume Studio" -c user.email="dev@resume-studio.local" commit -F msg.txt
+git push origin master:main
+
+# 3. 重启（改 Python 必须）
+for pid in $(netstat -ano | grep ":5000" | grep LISTENING | awk '{print $5}' | sort -u); do taskkill //F //PID $pid; done
+PYTHONPATH=. nohup python app.py > output/server.log 2>&1 &
 ```
-
-### ⚠️ 环境坑（都踩过）
-
-1. **跑 Python 必须设 `PYTHONPATH`**（或在项目根执行）。
-2. **PowerShell 里不要用多行 `python -c "..."`**——写成 .py 文件再跑。
-3. **重启服务器前先杀旧进程**：`netstat -ano | findstr :5000` 找 PID 再 `taskkill /F /PID <pid>`；直接 `taskkill /IM python.exe` 会误杀。旧进程不退会拿到旧代码（本次实测踩过：改了后端但请求打到旧服务）。
-4. **`page.pdf()` 不接受 BytesIO**，必须传文件路径再读回。
-5. **字体转换很慢**（31k 字形，每文件 30–50s），后台跑。
-6. **测试夹具用函数作用域**（`sample_general()` 已深拷贝，但共享状态仍是常见污染源）。
-7. `data/resumes.db` 是运行时生成物，测试用临时库（见 `tests/conftest.py` 的 monkeypatch）。
 
 ---
 
-## 8. 其他备注
+## 8. 建议的下一步（按优先级）
 
-- `legacy/` 是 v1 全部源码归档，**不参与运行、未纳入 git**（`.gitignore` 已排除）。
-- `docs/research/` 的调研结论已全部提炼进代码与 README，**无需重做调研**。
-- 中文字体为 Noto Sans SC / Noto Serif SC，**SIL OFL 1.1 许可**，可自由使用嵌入再分发。
-- 旧版 `/api/export-html-pdf` 端点**未迁移**（v1 用前端改过的 HTML 直出 PDF）；新架构下由 `/api/v1/render` + `pageBreaks` 覆盖，如确需保留再加。
-- 目标长期愿景：`goal-92e93b2d-75cd-4cb7-83db-5b106c5b89af`。
+1. **原格式预览的自动化视觉验收**：现在只能靠截图人眼判断，容易漏（技能消失那次就是先看文本行没看渲染图才发现）。建议对 `patch_pdf` 输出做「渲染 → 与原文 diff 像素/文本」的断言。
+2. **拆分 `pdf_patch.py`**：diff / 定位 / 插入 / 样式四职责混在 800+ 行里。建议拆 `diff.py` + `locate.py` + `insert.py`，并给 `diff_content` 补**属性测试**（fuzz：随机增删改移 → 期望变更集）。
+3. **AI「指哪改哪」快捷入口**：表单字段旁的 ✨ 目前只做自动润色；加一个「让 AI 按我的要求改这个字段」直接带路径，省得 AI 猜路径。
+4. **多页 PDF 的分页保持**：内容变长导致跨页时，原格式补丁可能挤压后续页。
+5. **用户自有字体在原格式插入时不可用**（只有内置 Noto）；要么转换嵌入，要么在 UI 明示。
+
+---
+
+## 9. 用户历史 bug 模式（供预判）
+
+| 类别 | 典型反馈 | 高发位置 |
+|---|---|---|
+| 导入解析 | 「XX 没匹配上」「匹配到公司了」 | `pdf_import.py` 分桶 / 拆分 |
+| 原格式不同步 | 「删了还在」「加了不显示」「字体对不上」 | `pdf_patch.py` |
+| 视觉一致性 | 「小框太固定」「标题样式不一样」「黑点去不掉」 | `sections.py` / `base_css.py` / 模板 CSS 覆盖 |
+| AI | 「填了说没填」「保存不了」「还是分析上一个简历」 | `aiPanel.js` 模块级状态未随 `doc-swapped` 重置 |
+
+---
+
+## 10. 关键约定（改代码前必读）
+
+- **表单路径**：`content.<section>.<idx>.<field>`，写入 `store.doc` 后 `store.touch()`
+- **`store.doc` 保存后不整体替换**（闭包引用问题，历史坑 #2）
+- **预览 iframe 同源**，可直接访问 `contentDocument`
+- **区块类型**：`object` / `array` / `free`（原 skills+simple 已统一）/ `simple`
+- **要做「和某元素完全同款」的样式，复用同一个 class**，不要复制 CSS 值——模板级覆盖只作用于原 class（成果小标题就是这么修的）
+- **原格式导出的 diff 以「内容在哪」为准，不以「在哪个字段」为准**（移动不算改动）
