@@ -59,7 +59,8 @@ def test_schema_sections(client):
     assert len(sc["builtin"]) == 7
     assert "profile" in sc["builtinKeys"]
     for s in sc["builtin"]:
-        assert s["key"] and s["title"] and s["type"] in ("object", "array", "skills", "simple")
+        assert s["key"] and s["title"] and s["type"] in (
+            "object", "array", "skills", "free", "simple")
 
 
 # ---------------- 文档 CRUD ----------------

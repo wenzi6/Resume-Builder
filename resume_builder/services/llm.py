@@ -771,7 +771,7 @@ _GEN_SCHEMA_HINT = """{
   "workExperiences": [{"company": "", "jobTitle": "", "date": "YYYY-MM – 至今", "descriptions": ["…"]}],
   "projects": [{"project": "", "jobTitle": "", "date": "YYYY-MM – YYYY-MM", "descriptions": ["…"]}],
   "educations": [{"school": "", "degree": "本科 · 专业", "date": "YYYY-MM – YYYY-MM", "descriptions": ["…"]}],
-  "skills": {"featuredSkills": [{"skill": "", "rating": 4}], "descriptions": ["…"]},
+  "skills": {"descriptions": ["…"]},
   "selfEvaluation": {"descriptions": ["…"]}
 }"""
 

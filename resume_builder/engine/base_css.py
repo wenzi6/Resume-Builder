@@ -134,6 +134,17 @@ h1, h2, h3, h4, p, figure {{ margin: 0; }}
   margin-top: 1px;
 }}
 
+/* 自由大框（技能 / 自我评价 / 其他信息等文本型区块）
+   一个带边框的文本块，每行一段——不用星级行、不用标签 pill */
+.rfree {{
+  border: 1px solid var(--r-border);
+  border-radius: 6px;
+  padding: 7px 12px 8px;
+  background: color-mix(in srgb, var(--r-text) 2%, transparent);
+}}
+.rfree p {{ margin: 0; color: var(--r-text-soft); }}
+.rfree p + p {{ margin-top: 3px; }}
+
 /* ============ 列表 ============ */
 .rlist {{ list-style: none; margin-top: 3px; }}
 .rlist li {{

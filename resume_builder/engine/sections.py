@@ -248,61 +248,12 @@ def render_array(section: dict, content: dict, design: dict) -> str:
 # ---------------------------------------------------------------- 技能
 
 
-def render_skills(section: dict, content: dict, design: dict) -> str:
-    skills = content.get("skills")
-    if not isinstance(skills, dict):
-        return ""
-    featured = skills.get("featuredSkills") if isinstance(skills.get("featuredSkills"), list) else []
-    others = skills.get("descriptions") if isinstance(skills.get("descriptions"), list) else []
-    if not featured and not others:
-        return ""
+def render_free(section: dict, content: dict, design: dict) -> str:
+    """自由大框：技能 / 自我评价 / 其他信息等文本型区块。
 
-    body = []
-    if featured:
-        rows = []
-        for fs in featured:
-            if not isinstance(fs, dict):
-                continue
-            nm = typo.tidy(str(fs.get("skill") or ""))
-            if not nm:
-                continue
-            try:
-                rating = int(float(fs.get("rating") or 0))
-            except (TypeError, ValueError):
-                rating = 0
-            rating = max(0, min(5, rating))
-            dots = "".join(f'<i class="{"on" if i < rating else ""}"></i>' for i in range(5))
-            rows.append(
-                f'<div class="rskill"><span class="rskill-name">{_esc(nm)}</span>'
-                f'<span class="rrate" role="img" aria-label="熟练度 {rating}/5">{dots}</span></div>'
-            )
-        if rows:
-            cols = " rskills-cols" if _sec_design(section).get("columns") == 2 else ""
-            body.append(f'<div class="rskills{cols}">{"".join(rows)}</div>')
-
-    tag_items = others if isinstance(others, list) else typo.split_lines(str(others))
-    chips = []
-    for t in tag_items:
-        tv = typo.tidy("" if t is None else str(t))
-        if tv:
-            chips.append(f'<span class="rtag">{_esc(tv)}</span>')
-    if chips:
-        body.append(f'<div class="rtag-row">{"".join(chips)}</div>')
-
-    if not body:
-        return ""
-    title_html = _title_html(section, "skills", "专业技能")
-    return (
-        '<section class="rsec" data-section="skills">'
-        f'{(title_html or "")}'
-        f'<div class="rsec-body">{"".join(body)}</div></section>'
-    )
-
-
-# ---------------------------------------------------------------- 单块型区块
-
-
-def render_simple(section: dict, content: dict, design: dict) -> str:
+    不用星级行、不用标签 pill——一个带边框的文本块，每行一段，
+    用户想怎么写就怎么写（技能名、熟练程度、整句描述都行）。
+    """
     key = section["key"]
     val = content.get(key)
     if isinstance(val, dict):
@@ -313,21 +264,24 @@ def render_simple(section: dict, content: dict, design: dict) -> str:
         items = typo.split_lines(str(val))
     else:
         items = []
-    lst = _list_html(items, cls="rlist rlist-plain")
-    if not lst:
+    lines = [typo.tidy(str(x)) for x in (items or []) if str(x or "").strip()]
+    lines = [x for x in lines if x]
+    if not lines:
         return ""
+    paras = "".join(f"<p>{_esc(x)}</p>" for x in lines)
     title_html = _title_html(section, key)
     return (
         f'<section class="rsec" data-section="{html.escape(key)}">'
         f'{(title_html or "")}'
-        f'<div class="rsec-body">{lst}</div></section>'
+        f'<div class="rsec-body"><div class="rfree">{paras}</div></div></section>'
     )
 
 
 RENDERERS = {
     "array": render_array,
-    "skills": render_skills,
-    "simple": render_simple,
+    "skills": render_free,
+    "free": render_free,
+    "simple": render_free,
 }
 
 

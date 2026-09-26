@@ -1089,6 +1089,14 @@ input[type="range"]::-moz-range-thumb {
   white-space: nowrap;
 }
 
+/* 自由文本框（技能 / 自我评价 / 其他信息）：一个大多行输入 */
+.free-textarea {
+  min-height: 132px;
+  line-height: 1.7;
+  resize: vertical;
+  font-size: 13px;
+}
+
 /* ============ 对话思考过程 ============ */
 .chat-think {
   border: 1px dashed var(--border);

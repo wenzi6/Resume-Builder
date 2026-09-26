@@ -280,18 +280,19 @@ def _normalize_content(content: dict[str, Any], sections: list[dict[str, Any]]) 
                 elif item not in (None, ""):
                     cleaned.append({sec["fields"][0]["key"] if sec["fields"] else "value": str(item)})
             out[key] = cleaned
-        elif sec_type == "skills":
+        elif sec_type in ("skills", "free", "simple"):
+            # 技能/自由文本/单块：统一成「一个自由大框」——descriptions 即各行文本。
+            # 旧版的 featuredSkills（名称+星级）合并进 descriptions，星级小框废弃。
             obj = val if isinstance(val, dict) else {}
-            featured = obj.get("featuredSkills")
-            featured = featured if isinstance(featured, list) else []
-            out[key] = {
-                "featuredSkills": [
-                    {"skill": _clean_scalar(fs.get("skill")),
-                     "rating": int(_clamp(fs.get("rating", 0), 0, 5)) if str(fs.get("rating", "")).strip() else 0}
-                    for fs in featured if isinstance(fs, dict)
-                ],
-                "descriptions": _as_str_list(obj.get("descriptions")),
-            }
+            lines = _as_str_list(obj.get("descriptions"))
+            if not lines and isinstance(val, list):
+                lines = _as_str_list(val)
+            for fs in (obj.get("featuredSkills") or []):
+                if isinstance(fs, dict):
+                    nm = _clean_scalar(fs.get("skill"))
+                    if nm:
+                        lines.append(nm)
+            out[key] = {"descriptions": lines}
         else:  # simple
             if isinstance(val, dict):
                 out[key] = {"descriptions": _as_str_list(val.get("descriptions"))}
@@ -300,7 +301,6 @@ def _normalize_content(content: dict[str, Any], sections: list[dict[str, Any]]) 
             else:
                 out[key] = {"descriptions": _as_str_list(val)}
     return out
-
 
 def _clean_scalar(v: Any) -> str:
     if v is None:

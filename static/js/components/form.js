@@ -344,41 +344,42 @@ function renderSectionBody(section, body) {
     return;
   }
 
-  if (section.type === "skills") {
+  // 文本型区块（技能 / 自我评价 / 其他信息）：一个自由大框，每行一条
+  if (section.type === "skills" || section.type === "free" || section.type === "simple") {
     const data = contentUtil.ensureDict(doc.content, key);
-    const featured = (data.featuredSkills = Array.isArray(data.featuredSkills) ? data.featuredSkills : []);
-
-    // 主要技能（名称 + 星级）
-    const fg = el("div", "field");
-    fg.appendChild(fieldLabel({ label: "主要技能（带熟练度）" }));
-    const rows = el("div");
-    featured.forEach((fs, i) => rows.appendChild(renderSkillRow(featured, fs, i)));
-    fg.appendChild(rows);
-    const addSkill = el("button", "add-btn", "+ 添加技能");
-    addSkill.type = "button";
-    addSkill.addEventListener("click", () => {
-      featured.push({ skill: "", rating: 3 });
-      store.touch();
-      fg.insertBefore(renderSkillRow(featured, featured[featured.length - 1], featured.length - 1), addSkill);
-    });
-    fg.appendChild(addSkill);
-    body.appendChild(fg);
-
-    // 其他技能（标签行）
-    renderListField(
-      key,
-      { label: "其他技能（标签）", hint: "每行一个，如 Webpack / Vite" },
-      body,
-      data.descriptions,
-      `content.${key}.descriptions`,
-      { placeholder: "技能名称" },
-    );
+    const items = Array.isArray(data.descriptions) ? data.descriptions : [];
+    renderFreeTextField(key, section.fields?.[0] || { label: "内容" }, body, items,
+                        `content.${key}.descriptions`);
     return;
   }
+}
 
-  // simple
-  const data = contentUtil.ensureDict(doc.content, key);
-  renderListField(key, section.fields?.[0] || { label: "内容" }, body, data.descriptions, `content.${key}.descriptions`);
+/**
+ * 自由文本框：一个多行输入，每行一条内容。
+ * 比「一行一个输入框 + 增删按钮」自由得多——想写技能名、熟练度还是整句
+ * 描述都行，也方便整段粘贴。
+ */
+function renderFreeTextField(sectionKey, field, container, items, basePath) {
+  const wrap = el("div", "field");
+  wrap.appendChild(fieldLabel(field));
+  if (field.hint) wrap.appendChild(hintOf(field));
+
+  const ta = el("textarea", "field-textarea free-textarea");
+  ta.rows = 8;
+  ta.value = (items || []).join("\n");
+  ta.placeholder = field.hint || "每行一条内容";
+  ta.dataset.path = basePath;
+  ta.addEventListener("input", () => {
+    autoGrow(ta);
+    const lines = ta.value.split("\n").map((s) => s.trim()).filter((s) => s);
+    setByPath(store.doc, basePath, lines);
+    store.touch();
+  });
+  wrap.appendChild(ta);
+
+  const tip = el("p", "field-hint", "每行一条；空行会被忽略。可直接整段粘贴。");
+  wrap.appendChild(tip);
+  container.appendChild(wrap);
 }
 
 function renderArrayItem(section, item, idx) {
@@ -446,48 +447,6 @@ function moveItem(section, idx, dir) {
   renderForm(document.getElementById("formArea"));
 }
 
-function renderSkillRow(featured, fs, idx) {
-  const row = el("div", "skill-row");
-  const input = el("input", "field-input");
-  input.type = "text";
-  input.value = fs.skill || "";
-  input.placeholder = "技能名称，如 React";
-  input.addEventListener("input", () => {
-    featured[idx].skill = input.value;
-    store.touch();
-  });
-  row.appendChild(input);
-
-  const rating = el("span", "rating");
-  rating.title = "熟练度";
-  for (let s = 1; s <= 5; s++) {
-    const star = el("button", "rating-star" + (s <= (fs.rating || 0) ? " on" : ""), "★");
-    star.type = "button";
-    star.title = `${s} 星`;
-    star.addEventListener("click", () => {
-      featured[idx].rating = s;
-      store.touch();
-      rating.querySelectorAll(".rating-star").forEach((b, i) => b.classList.toggle("on", i < s));
-    });
-    rating.appendChild(star);
-  }
-  row.appendChild(rating);
-
-  const del = el("button", "list-row-act danger", "✕");
-  del.type = "button";
-  del.title = "删除";
-  del.addEventListener("click", () => {
-    featured.splice(idx, 1);
-    store.touch();
-    row.remove();
-  });
-  row.appendChild(del);
-  return row;
-}
-
-/* ---------------- 整体渲染 ---------------- */
-
-/** 全量渲染表单（换文档 / 区块结构变化时调用）。 */
 export function renderForm(container) {
   const doc = store.doc;
   container.textContent = "";

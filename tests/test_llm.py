@@ -181,13 +181,13 @@ def test_generate(monkeypatch):
         "profile": {"name": "张三", "title": "前端工程师", "summary": "3 年经验"},
         "workExperiences": [{"company": "某科技公司", "jobTitle": "前端工程师",
                              "date": "2022-03 – 至今", "descriptions": ["负责核心产品前端开发"]}],
-        "skills": {"featuredSkills": [{"skill": "React", "rating": 4}], "descriptions": []},
+        "skills": {"descriptions": ["React"]},
     }
     _mock_chat(monkeypatch, "```json\n" + json.dumps(payload, ensure_ascii=False) + "\n```")
     r = llm.generate_resume({"title": "前端工程师", "name": "张三", "years": "3"})
     assert r["content"]["profile"]["name"] == "张三"
     assert r["content"]["workExperiences"][0]["company"] == "某科技公司"
-    assert r["content"]["skills"]["featuredSkills"][0]["skill"] == "React"
+    assert "React" in r["content"]["skills"]["descriptions"]
 
 
 def test_generate_requires_title():
@@ -566,7 +566,7 @@ def test_api_stream_generate(client, monkeypatch):
     _configured()
     payload = {"profile": {"name": "流式生成", "title": "工程师", "summary": ""},
                "workExperiences": [], "projects": [], "educations": [],
-               "skills": {"featuredSkills": [], "descriptions": []},
+               "skills": {"descriptions": []},
                "selfEvaluation": {"descriptions": []}}
     _mock_stream(monkeypatch, [
         'data: {"choices":[{"delta":{"content":' + json.dumps(json.dumps(payload, ensure_ascii=False)) + '}}]}',

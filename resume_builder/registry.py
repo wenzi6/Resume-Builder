@@ -82,11 +82,11 @@ BUILTIN_SECTIONS: list[dict[str, Any]] = [
     {
         "key": "skills",
         "title": "专业技能",
-        "type": "skills",
+        "type": "free",
         "icon": "star",
         "fields": [
-            {"key": "featuredSkills", "label": "主要技能", "type": "rating"},
-            {"key": "descriptions", "label": "其他技能", "type": "list", "hint": "每行一个，如 Webpack / Vite"},
+            {"key": "descriptions", "label": "技能内容", "type": "free",
+             "hint": "每行一条，自由书写：技能名、熟练程度、或用几句话描述都行"},
         ],
     },
     {

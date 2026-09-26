@@ -195,3 +195,34 @@ def test_section_design_columns(doc_general):
 
     html = render_preview(d)
     assert "rskills-cols" in html or True
+
+
+# ---------------- 自由大框（技能等文本型区块） ----------------
+
+def test_skills_renders_as_free_box():
+    """技能渲染为一个自由大框：无星级、无标签 pill。"""
+    from resume_builder.engine import sections as sec
+
+    section = {"key": "skills", "type": "free", "title": "专业技能",
+               "fields": [{"key": "descriptions", "type": "free"}]}
+    content = {"skills": {"descriptions": ["熟悉招聘全流程", "熟悉 IT 技术岗位招聘"]}}
+    html = sec.render_free(section, content, {})
+    assert 'class="rfree"' in html
+    assert "熟悉招聘全流程" in html
+    assert "rrate" not in html and "rtag" not in html
+
+
+def test_legacy_skills_migrated_to_free_list():
+    """旧数据（featuredSkills 星级 + descriptions）归一化时合并成自由列表。"""
+    from resume_builder.schema import normalize_document
+    from resume_builder.sample import sample_general
+
+    doc = sample_general()
+    doc["content"]["skills"] = {
+        "featuredSkills": [{"skill": "React", "rating": 5}, {"skill": "Vue", "rating": 4}],
+        "descriptions": ["Webpack", "Vite"],
+    }
+    out = normalize_document(doc)
+    skills = out["content"]["skills"]
+    assert "featuredSkills" not in skills
+    assert set(skills["descriptions"]) == {"React", "Vue", "Webpack", "Vite"}
