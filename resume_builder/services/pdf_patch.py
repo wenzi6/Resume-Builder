@@ -234,6 +234,61 @@ def fitz_rect(bbox):
     return fitz.Rect(bbox)
 
 
+def _bullet_art_rects(page, line: dict) -> list:
+    """行首左侧的矢量圆点。
+
+    很多 PDF 的列表标记是**画出来的**小圆圈（线条画），不是文字——它的 x 往往
+    比该行文字更靠左，红选矩形只覆盖文字 span，于是删了内容只剩一个孤点。
+    这里把行首左侧 24pt 内、垂直与行重叠、尺寸 ≤8pt 的填充图形找出来，
+    一并纳入红选。
+    """
+    import fitz
+
+    spans = line.get("spans") or []
+    if not spans:
+        return []
+    y0 = min(float(s["bbox"][1]) for s in spans)
+    y1 = max(float(s["bbox"][3]) for s in spans)
+    x0 = min(float(s["bbox"][0]) for s in spans)
+    out: list = []
+    try:
+        draws = page.get_drawings()
+    except Exception:  # noqa: BLE001
+        return out
+    for d in draws:
+        r = d.get("rect")
+        if r is None:
+            continue
+        if r.y1 < y0 - 1.5 or r.y0 > y1 + 1.5:
+            continue                      # 垂直不与本行重叠
+        if r.x1 > x0 + 1.5 or r.x0 < x0 - 26:
+            continue                      # 不在行首左侧邻近范围
+        if r.width > 8 or r.height > 8:
+            continue                      # 不是小圆点
+        out.append(fitz.Rect(r))
+    return out
+
+
+def _apply_redactions(page, remove_line_art: bool = False) -> None:
+    """执行 redact。
+
+    remove_line_art=True 时把红选范围内的**矢量图形**（列表前的圆点常是画出来
+    的小圆圈，不是文字）一并清掉——否则删了内容只剩一个孤零零的小点。
+    """
+    import fitz
+
+    kwargs = {"images": fitz.PDF_REDACT_IMAGE_NONE}
+    if remove_line_art:
+        try:
+            kwargs["graphics"] = fitz.PDF_REDACT_LINE_ART_REMOVE_IF_TOUCHED
+        except AttributeError:  # pragma: no cover - 旧版 PyMuPDF 无此参数
+            pass
+    try:
+        page.apply_redactions(**kwargs)
+    except TypeError:  # pragma: no cover - 旧版签名不兼容时退回最小参数
+        page.apply_redactions(images=fitz.PDF_REDACT_IMAGE_NONE)
+
+
 def _span_color(span) -> tuple[float, float, float]:
     color = span.get("color", 0)
     if isinstance(color, int):
@@ -708,7 +763,10 @@ def _replace_in_line(page, line: dict, raw_old: str, new_val, path: str):
                 page.add_redact_annot(fitz.Rect(s["bbox"]))
         else:
             page.add_redact_annot(union)
-        page.apply_redactions(images=fitz.PDF_REDACT_IMAGE_NONE)
+        # 行首左侧的矢量圆点（不在文字 span 范围内）一并红选掉
+        for r in _bullet_art_rects(page, line):
+            page.add_redact_annot(r)
+        _apply_redactions(page, remove_line_art=True)
         return True, None
 
     new_segment = segment.replace(raw_old, new_val)
@@ -736,7 +794,7 @@ def _replace_in_line(page, line: dict, raw_old: str, new_val, path: str):
     floor = MIN_FONT_SIZE if blocked else max(7.5, size * 0.88)
     fit_size, overflow = _fit_size_readable(new_segment, size, avail, font, floor)
     page.add_redact_annot(redact_rect)
-    page.apply_redactions(images=fitz.PDF_REDACT_IMAGE_NONE)
+    _apply_redactions(page, remove_line_art=False)
     _insert_text(page, (insert_x, y), new_segment, fit_size, color, bold, font)
     if overflow:
         if blocked:

@@ -529,3 +529,36 @@ def test_delete_bullet_removes_its_dot(tmp_path):
     assert "第二条内容" not in text
     assert "第一条内容" in text and "第三条内容" in text
     assert dot_count(r["data"]) == before - 1, "圆点没跟着一起删掉"
+
+
+def test_delete_removes_vector_bullet_dot(tmp_path):
+    """圆点是矢量图形时（不是文字），删除内容后也必须一起消失。"""
+    import pymupdf
+
+    from resume_builder.services import pdf_patch
+
+    # 构造「文字 + 行首矢量圆点」的 PDF（用 ASCII：内置字体无中文字形）
+    doc = pymupdf.open()
+    page = doc.new_page(width=400, height=300)
+    for i, txt in enumerate(("first item", "second item", "third item")):
+        y = 50 + i * 30
+        page.draw_circle(pymupdf.Point(40, y - 3), 1.5, color=None,
+                         fill=(0.33, 0.33, 0.33))
+        page.insert_text((50, y), txt, fontsize=10)
+    pdf = doc.tobytes()
+    doc.close()
+    src = tmp_path / "vec.pdf"
+    src.write_bytes(pdf)
+
+    def dots(data: bytes) -> int:
+        with pymupdf.open(stream=data, filetype="pdf") as d:
+            return sum(1 for dr in d[0].get_drawings() if dr["rect"].width <= 8)
+
+    assert dots(pdf) == 3, dots(pdf)
+
+    old = {"skills": {"descriptions": ["first item", "second item", "third item"]}}
+    new = {"skills": {"descriptions": ["first item", "third item"]}}
+    r = pdf_patch.patch_pdf(str(src), old, new)
+    assert any(a["path"].endswith("descriptions.1") for a in r["applied"]), r["failed"]
+    assert "second item" not in _text(r["data"])
+    assert dots(r["data"]) == 2, "矢量圆点没跟着删掉"
