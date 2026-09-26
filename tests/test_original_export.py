@@ -562,3 +562,38 @@ def test_delete_removes_vector_bullet_dot(tmp_path):
     assert any(a["path"].endswith("descriptions.1") for a in r["applied"]), r["failed"]
     assert "second item" not in _text(r["data"])
     assert dots(r["data"]) == 2, "矢量圆点没跟着删掉"
+
+
+def test_skills_structure_migration_is_not_a_change():
+    """旧版 featuredSkills 合并进 descriptions 不算改动（原格式必须保留技能）。
+
+    回归：标量分支漏了「移动」判断时，8 条技能会被当成删除，原格式预览
+    里技能特长整段消失。
+    """
+    from resume_builder.services import pdf_patch
+
+    old = {"skills": {"featuredSkills": [
+        {"skill": "熟悉TCP/IP网络体系,掌握TCP/UDP", "rating": 3},
+        {"skill": "熟悉Windows/Linux服务器运维", "rating": 3},
+        {"skill": "了解Linux系统、TCP/IP网络基础。", "rating": 3},
+    ], "descriptions": []}}
+    new = {"skills": {"descriptions": [
+        "熟悉TCP/IP网络体系,掌握TCP/UDP",
+        "熟悉Windows/Linux服务器运维",
+        "了解Linux系统、TCP/IP网络基础。",
+    ]}}
+    assert pdf_patch.diff_content(old, new) == []
+
+    # 反向（用户又改回结构化）同样不算改动
+    assert pdf_patch.diff_content(new, old) == []
+
+
+def test_scalar_field_moved_between_sections():
+    """标量字段在区块间搬家也不算改动。"""
+    from resume_builder.services import pdf_patch
+
+    old = {"custom": {"descriptions": ["博客 blog.example.com"]},
+           "profile": {"name": "张三", "summary": ""}}
+    new = {"custom": {"descriptions": []},
+           "profile": {"name": "张三", "summary": "博客 blog.example.com"}}
+    assert pdf_patch.diff_content(old, new) == []

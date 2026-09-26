@@ -144,8 +144,9 @@ def diff_content(old_content: Any, new_content: Any) -> list[dict[str, Any]]:
         else:
             nv = new_map.get(path)
             if nv is None:
-                changes.append({"path": path, "old": val, "new": None})
-            elif nv != val:
+                if not _moved(val, path):
+                    changes.append({"path": path, "old": val, "new": None})
+            elif nv != val and not _moved(val, path):
                 changes.append({"path": path, "old": val, "new": nv})
     for path, val in new_map.items():
         if not _is_item(path) and path not in old_map:
