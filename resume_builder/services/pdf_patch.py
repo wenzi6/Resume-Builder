@@ -69,20 +69,91 @@ def flatten_content(content: Any) -> dict[str, str]:
     return out
 
 
+def _lcs_keep(a: list[str], b: list[str]) -> tuple[set[int], set[int]]:
+    """最长公共子序列，返回 (a 中保留下来的下标, b 中保留下来的下标)。"""
+    n, m = len(a), len(b)
+    dp = [[0] * (m + 1) for _ in range(n + 1)]
+    for i in range(n - 1, -1, -1):
+        for j in range(m - 1, -1, -1):
+            dp[i][j] = (dp[i + 1][j + 1] + 1) if a[i] == b[j] else max(dp[i + 1][j], dp[i][j + 1])
+    keep_a: set[int] = set()
+    keep_b: set[int] = set()
+    i = j = 0
+    while i < n and j < m:
+        if a[i] == b[j]:
+            keep_a.add(i)
+            keep_b.add(j)
+            i += 1
+            j += 1
+        elif dp[i + 1][j] >= dp[i][j + 1]:
+            i += 1
+        else:
+            j += 1
+    return keep_a, keep_b
+
+
 def diff_content(old_content: Any, new_content: Any) -> list[dict[str, Any]]:
-    """逐路径比较，返回 [{path, old, new}]；new=None 表示该内容被删除。"""
+    """逐路径比较，返回 [{path, old, new}]；new=None 表示删除，old=None 表示新增。
+
+    列表字段按**内容**比对：等长时按位置（纯编辑场景），长度变化时按公共子序列
+    识别谁被删、谁被新增。直接按索引比较会把「删掉中间一条」误判成「后面所有
+    条目都改了」，原格式补丁随之错位、大片失效。
+    """
     old_map = flatten_content(old_content)
     new_map = flatten_content(new_content)
     changes: list[dict[str, Any]] = []
-    for path, old_val in old_map.items():
-        new_val = new_map.get(path)
-        if new_val is None:
-            changes.append({"path": path, "old": old_val, "new": None})
-        elif new_val != old_val:
-            changes.append({"path": path, "old": old_val, "new": new_val})
-    for path in new_map:
-        if path not in old_map:
-            changes.append({"path": path, "old": None, "new": new_map[path]})
+
+    def _is_item(path: str) -> bool:
+        return path.rsplit(".", 1)[-1].isdigit()
+
+    def _split(path: str) -> tuple[str, int]:
+        parent, idx = path.rsplit(".", 1)
+        return parent, int(idx)
+
+    old_groups: dict[str, list[tuple[int, str, str]]] = {}
+    new_groups: dict[str, list[tuple[int, str, str]]] = {}
+    for path, val in old_map.items():
+        if _is_item(path):
+            parent, idx = _split(path)
+            old_groups.setdefault(parent, []).append((idx, path, val))
+        else:
+            nv = new_map.get(path)
+            if nv is None:
+                changes.append({"path": path, "old": val, "new": None})
+            elif nv != val:
+                changes.append({"path": path, "old": val, "new": nv})
+    for path, val in new_map.items():
+        if not _is_item(path) and path not in old_map:
+            changes.append({"path": path, "old": None, "new": val})
+        elif _is_item(path):
+            parent, idx = _split(path)
+            new_groups.setdefault(parent, []).append((idx, path, val))
+
+    for parent, old_items in old_groups.items():
+        old_items.sort()
+        new_items = sorted(new_groups.get(parent, []))
+        old_vals = [v for _, _, v in old_items]
+        new_vals = [v for _, _, v in new_items]
+        if len(old_vals) == len(new_vals):
+            # 等长：按位置比较（用户只改了文字）
+            for (_, op, ov), (_, np_, nv) in zip(old_items, new_items):
+                if ov != nv:
+                    changes.append({"path": op, "old": ov, "new": nv})
+            continue
+        # 长度变化：公共子序列之外的即为增/删
+        keep_a, keep_b = _lcs_keep(old_vals, new_vals)
+        for i, (_, op, ov) in enumerate(old_items):
+            if i not in keep_a:
+                changes.append({"path": op, "old": ov, "new": None})
+        for j, (_, np_, nv) in enumerate(new_items):
+            if j not in keep_b:
+                changes.append({"path": np_, "old": None, "new": nv})
+    # 旧内容里没有、新内容里新增的列表
+    for parent, new_items in new_groups.items():
+        if parent in old_groups:
+            continue
+        for _, np_, nv in sorted(new_items):
+            changes.append({"path": np_, "old": None, "new": nv})
     return changes
 
 

@@ -353,3 +353,99 @@ def test_source_pages_get_returns_original(client, imported):
     assert body["pages"]
     assert not body.get("live")
     assert "/pages/" in body["pages"][0]["url"]
+
+
+# ---------------- 删除条目：diff 必须按内容而非索引 ----------------
+
+def test_diff_content_delete_middle_item():
+    """删掉中间一条：只应产生一条删除，不能把后面条目误判成修改。"""
+    from resume_builder.services import pdf_patch
+
+    old = {"workExperiences": [{"descriptions": ["A条目", "B条目", "C条目", "D条目"]}]}
+    new = {"workExperiences": [{"descriptions": ["A条目", "B条目", "D条目"]}]}
+    changes = pdf_patch.diff_content(old, new)
+    assert len(changes) == 1, changes
+    assert changes[0] == {
+        "path": "workExperiences.0.descriptions.2", "old": "C条目", "new": None}
+
+
+def test_diff_content_add_item():
+    """新增一条：只报新增（原格式放不下，由调用方提示），不产生错位替换。"""
+    from resume_builder.services import pdf_patch
+
+    old = {"workExperiences": [{"descriptions": ["A条目", "B条目"]}]}
+    new = {"workExperiences": [{"descriptions": ["A条目", "B条目", "C条目"]}]}
+    changes = pdf_patch.diff_content(old, new)
+    assert len(changes) == 1, changes
+    assert changes[0]["old"] is None and changes[0]["new"] == "C条目"
+
+
+def test_diff_content_same_length_edit():
+    """等长只改文字：按位置一条替换（原有行为不回归）。"""
+    from resume_builder.services import pdf_patch
+
+    old = {"workExperiences": [{"descriptions": ["A条目", "B条目"]}]}
+    new = {"workExperiences": [{"descriptions": ["A条目改了", "B条目"]}]}
+    changes = pdf_patch.diff_content(old, new)
+    assert changes == [{"path": "workExperiences.0.descriptions.0",
+                        "old": "A条目", "new": "A条目改了"}]
+
+
+def test_patch_pdf_delete_item_removes_text(tmp_path):
+    """删掉的条目其文本必须从补丁后的 PDF 里消失。"""
+    from resume_builder.services import pdf_patch
+
+    pdf = _per_char_pdf([
+        "负责第一条工作内容",
+        "负责第二条工作内容",
+        "负责第三条工作内容",
+    ])
+    src = tmp_path / "del.pdf"
+    src.write_bytes(pdf)
+    old = {"workExperiences": [{"descriptions": [
+        "负责第一条工作内容", "负责第二条工作内容", "负责第三条工作内容"]}]}
+    new = {"workExperiences": [{"descriptions": [
+        "负责第一条工作内容", "负责第三条工作内容"]}]}
+    r = pdf_patch.patch_pdf(str(src), old, new)
+    paths = [(a["path"], "applied") for a in r["applied"]] + \
+            [(f["path"], f["reason"]) for f in r["failed"]]
+    assert any(p[0].endswith("descriptions.1") and p[1] == "applied" for p in paths), paths
+    text = _text(r["data"])
+    assert "负责第二条工作内容" not in text, "删除的条目仍留在 PDF 里"
+    assert "负责第一条工作内容" in text and "负责第三条工作内容" in text
+
+
+def test_patch_pdf_delete_item_real_pipeline(client, imported):
+    """真实渲染管线的 PDF：删掉一条要点，补丁后该文本必须消失。"""
+    doc = client.get(f"/api/v1/documents/{imported}").get_json()["document"]
+    work = doc["content"].get("workExperiences") or []
+    target = next((w for w in work if len(w.get("descriptions") or []) >= 2), None)
+    if not target:
+        import pytest
+
+        pytest.skip("样本没有多条要点的工作经历")
+    removed = target["descriptions"][0]
+    changed = {"workExperiences": []}
+    for w in work:
+        item = dict(w)
+        if w is target:
+            item["descriptions"] = w["descriptions"][1:]
+        changed["workExperiences"].append(item)
+
+    from resume_builder.services import pdf_patch
+
+    r = client.post("/api/v1/export/pdf", json={"id": imported, "mode": "original"})
+    assert r.status_code == 200
+    # 直接在服务层验证（不走落库）：用导入快照 vs 删除后的内容
+    src_doc = client.get(f"/api/v1/documents/{imported}").get_json()["document"]
+    result = pdf_patch.patch_pdf(src_doc["sourcePdf"], src_doc["sourceContent"], changed)
+    text = _text(result["data"])
+    assert removed not in text, "删除的要点仍留在补丁后的 PDF 里"
+    # 剩下的要点仍在：剥离空白与标点后取前 12 字比对（避开全/半角差异）
+    import re as _re
+
+    def _bare(s: str) -> str:
+        return _re.sub(r"[\s，,。.、；;：:（）()]", "", s)
+
+    kept = _bare(target["descriptions"][1])[:12]
+    assert kept in _bare(text), f"保留的要点丢了：{kept}"
