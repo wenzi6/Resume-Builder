@@ -55,12 +55,15 @@ def _is_empty(value: Any) -> bool:
 
 
 def _achievement_label(section: dict, design: dict) -> str:
-    """「成果」小标题的文字：区块级 > 全局 > 默认「工作成果」。"""
+    """「成果」小标题文字：区块级 > 全局 > 默认「工作成果」，末尾带冒号。"""
     sec_d = _sec_design(section)
     label = (sec_d.get("achievementLabel")
              or (design or {}).get("achievementLabel")
              or "工作成果")
-    return str(label)[:12] or "工作成果"
+    label = str(label)[:12].strip() or "工作成果"
+    if not label.endswith((":", "：")):
+        label += "："
+    return label
 
 
 def _bullet_attr(section: dict, design: dict) -> str:
@@ -251,9 +254,11 @@ def render_array(section: dict, content: dict, design: dict) -> str:
                                  bullet_attr=_bullet_attr(section, design))
             if ach_lst:
                 label = _achievement_label(section, design)
+                # 小标题复用 ritem-sub：各模板对「岗位信息」的覆盖（颜色/字重/
+                # 斜体等）会自动继承，做到和职位一模一样
                 lists.append(
                     '<div class="ritem-ach">'
-                    f'<span class="ritem-ach-label">{_esc(label)}</span>'
+                    f'<span class="ritem-ach-label ritem-sub">{_esc(label)}</span>'
                     f'{ach_lst}</div>'
                 )
 

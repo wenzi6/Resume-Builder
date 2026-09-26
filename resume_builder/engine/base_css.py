@@ -190,11 +190,10 @@ h1, h2, h3, h4, p, figure {{ margin: 0; }}
   background: color-mix(in srgb, var(--r-accent) 7%, transparent);
   border-radius: 0 var(--r-radius-sm, 3px) var(--r-radius-sm, 3px) 0;
 }}
-/* 成果小标题：与「岗位信息」（ritem-sub）完全同款——同字号、同颜色、同字重 */
+/* 成果小标题：直接复用 .ritem-sub（岗位信息）的颜色/字重/斜体等，
+   这里只负责布局——真正做到与职位一模一样，且随模板变化 */
 .ritem-ach-label {{
   display: block;
-  color: var(--r-accent);
-  font-weight: 500;
   margin-bottom: 1px;
 }}
 .ritem-ach .rlist {{ margin-top: 0; }}

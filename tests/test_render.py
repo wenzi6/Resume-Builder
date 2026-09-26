@@ -285,7 +285,7 @@ def test_empty_bullets_leave_no_mark():
 # ---------------- 成果小标题与岗位信息同款 + 可自定义 ----------------
 
 def test_achievement_label_matches_job_title_style():
-    """成果小标题必须与岗位信息（ritem-sub）同色同字重。"""
+    """成果小标题必须复用 ritem-sub（岗位信息），从而与职位完全同款。"""
     from resume_builder.engine import renderer
     from resume_builder.sample import sample_general
 
@@ -295,17 +295,31 @@ def test_achievement_label_matches_job_title_style():
     html = renderer.render_html(doc)
     import re
 
-    sub = re.search(r"\.ritem-sub \{\{?([^}]*)\}\}?", html)
-    ach = re.search(r"\.ritem-ach-label \{\{?([^}]*)\}\}?", html)
-    assert sub and ach, "缺少样式定义"
-    # 颜色与字重必须一致
-    assert "var(--r-accent)" in ach.group(1)
-    assert "font-weight: 500" in ach.group(1)
-    assert "var(--r-accent)" in sub.group(1)
-    assert "font-weight: 500" in sub.group(1)
-    # 不再有原来那个更小更粗的样式
-    assert "font-weight: 700" not in ach.group(1)
-    assert "0.86em" not in ach.group(1)
+    m = re.search(r'<span class="([^"]*)"[^>]*>([^<]*)</span>\s*<ul class="rlist rlist-ach"', html)
+    assert m, "找不到成果小标题"
+    classes = m.group(1).split()
+    assert "ritem-sub" in classes, f"小标题未复用 ritem-sub：{classes}"
+    assert "ritem-ach-label" in classes
+    # 自带样式只做布局，不抢颜色/字重（交给 ritem-sub，随模板变化）
+    ach_css = re.search(r"\.ritem-ach-label \{([^}]*)\}", html)
+    assert ach_css and "color" not in ach_css.group(1), ach_css.group(1) if ach_css else "?"
+    assert ach_css and "font-weight" not in ach_css.group(1)
+
+
+def test_achievement_label_has_colon():
+    """成果小标题末尾带冒号（自定义时以 : 结尾则不重复加）。"""
+    from resume_builder.engine import renderer
+    from resume_builder.sample import sample_general
+
+    doc = sample_general()
+    doc["templateId"] = "classic"
+    doc["content"]["workExperiences"][0]["achievements"] = ["性能提升 40%"]
+    html = renderer.render_html(doc)
+    assert "工作成果：" in html
+
+    doc["design"]["achievementLabel"] = "主要业绩:"
+    html2 = renderer.render_html(doc)
+    assert "主要业绩:" in html2 and "主要业绩::" not in html2
 
 
 def test_achievement_label_customizable():
