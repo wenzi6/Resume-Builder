@@ -164,6 +164,24 @@ VERB_START_RE = re.compile(r"^(跟进|负责|协助|参与|支持|配合|编写|
 LABEL_PREFIX_RE = re.compile(r"^(工作内容|岗位职责|项目介绍|项目内容|职责|内容|主修课程|专业|学历)[：:]?")
 
 
+def detect_section_titles(extracted: dict) -> dict[str, str]:
+    """从提取结果里识别各区块在原文中的标题文本（如「技能特长」而非默认的「专业技能」）。
+
+    导入时用它覆盖默认区块名：编辑器/模板预览与原文一致，后续改名也能被
+    原格式补丁识别（补丁以 PDF 里的标题为「旧值」）。
+    """
+    sections = extracted.get("structure", {}).get("sections") or []
+    titles: dict[str, str] = {}
+    for s in sections:
+        raw = DECOR_RE.sub("", norm_text((s.get("text") or "").strip()))
+        if not raw:
+            continue
+        key = _match_section_title(raw, bool(s.get("bold") or s.get("is_title")))
+        if key and key not in titles:
+            titles[key] = raw
+    return titles
+
+
 def _join_wrapped(lines: list[str]) -> list[str]:
     """合并被 PDF 换行切碎的同一段话。
 

@@ -449,3 +449,38 @@ def test_patch_pdf_delete_item_real_pipeline(client, imported):
 
     kept = _bare(target["descriptions"][1])[:12]
     assert kept in _bare(text), f"保留的要点丢了：{kept}"
+
+
+# ---------------- 区块标题同步进原格式 ----------------
+
+def test_section_title_rename_patches_original_pdf(client, imported):
+    """区块改名 / 隐藏标题 / 隐藏区块，都要同步进原格式补丁。"""
+    from resume_builder.services import pdf_patch
+
+    doc = client.get(f"/api/v1/documents/{imported}").get_json()["document"]
+    work = doc["content"].get("workExperiences") or []
+    if not work:
+        import pytest
+
+        pytest.skip("样本无工作经历")
+
+    # 1) 改名：PDF 里的原标题 → 新标题
+    secs = [dict(s) for s in doc["sections"]]
+    for s in secs:
+        if s["key"] == "workExperiences":
+            s["title"] = "职业经历"
+    r = pdf_patch.patch_pdf(doc["sourcePdf"], doc["sourceContent"], doc["content"], secs)
+    applied = [a["path"] for a in r["applied"]]
+    assert any("sections.workExperiences.title" in p for p in applied), (applied, r["failed"])
+    assert "职业经历" in _text(r["data"]).replace(" ", "")
+
+    # 2) 隐藏整个区块：其内容必须被移除
+    secs2 = [dict(s) for s in doc["sections"]]
+    for s in secs2:
+        if s["key"] == "selfEvaluation":
+            s["visible"] = False
+    removed = (doc["content"].get("selfEvaluation") or {}).get("descriptions") or []
+    if removed:
+        r2 = pdf_patch.patch_pdf(doc["sourcePdf"], doc["sourceContent"], doc["content"], secs2)
+        applied2 = [a["path"] for a in r2["applied"]]
+        assert any("selfEvaluation" in p for p in applied2), (applied2, r2["failed"])

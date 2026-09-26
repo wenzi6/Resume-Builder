@@ -69,6 +69,7 @@ def reparse_pdf():
     # 先备份（用户可能已手工修过一些字段，重新解析会覆盖）
     bundle.backup_db(force=True)
     doc["content"] = content
+    _apply_pdf_section_titles(doc, extracted)
     doc["sourceContent"] = copy.deepcopy(content)
     saved = docs_svc.save_document(doc)
     return jsonify({
@@ -76,6 +77,19 @@ def reparse_pdf():
         "rawText": extracted.get("raw_text", "")[:2000],
         "reparsed": True,
     })
+
+
+def _apply_pdf_section_titles(doc: dict, extracted: dict) -> None:
+    """用 PDF 里识别出的区块标题覆盖默认名（如 PDF 写「技能特长」就不要叫「专业技能」）。"""
+    titles = pdf_import.detect_section_titles(extracted)
+    if not titles:
+        return
+    for sec in doc.get("sections") or []:
+        if not isinstance(sec, dict):
+            continue
+        pdf_title = titles.get(sec.get("key"))
+        if pdf_title:
+            sec["title"] = pdf_title
 
 
 def _safe_rel(rel: str) -> bool:
@@ -114,6 +128,7 @@ def import_pdf():
 
     doc = new_document(title=f"导入-{file.filename[:20]}")
     doc["content"] = content
+    _apply_pdf_section_titles(doc, extracted)
     doc["sourcePdf"] = f"imports/{stored_name}"
     # 存档导入时的解析结果：原格式导出据此计算「用户改了什么」
     doc["sourceContent"] = copy.deepcopy(content)

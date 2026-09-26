@@ -225,3 +225,25 @@ def test_join_wrapped_merges_broken_paragraph():
     # 短行开头（如 RESUME）不与后文合并；条目符号不合并
     assert pdf_import._join_wrapped(["RESUME", "IT招聘专员 面议"]) == ["RESUME", "IT招聘专员 面议"]
     assert pdf_import._join_wrapped(["第一段完整句子。", "· 这是条目"]) == ["第一段完整句子。", "· 这是条目"]
+
+
+# ---------------- 导入采用 PDF 里的区块标题 ----------------
+
+def test_import_adopts_pdf_section_titles(client):
+    """PDF 里写「技能特长」，导入后区块标题就叫「技能特长」（不沿用默认的「专业技能」）。"""
+    from resume_builder.engine import pdf as pdf_engine
+    from resume_builder.sample import sample_general
+
+    doc = sample_general()
+    doc["templateId"] = "classic"
+    for s in doc["sections"]:
+        if s["key"] == "skills":
+            s["title"] = "技能特长"
+    data = pdf_engine.render_pdf_bytes(doc)
+    r = client.post("/api/v1/import/pdf",
+                    data={"file": (io.BytesIO(data), "t.pdf")},
+                    content_type="multipart/form-data")
+    assert r.status_code == 200
+    imported = r.get_json()["document"]
+    titles = {s["key"]: s["title"] for s in imported["sections"]}
+    assert titles.get("skills") == "技能特长", titles

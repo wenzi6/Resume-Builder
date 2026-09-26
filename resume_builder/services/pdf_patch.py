@@ -342,7 +342,52 @@ def _insert_text(page, point, text, size, color, bold: bool, font=None) -> None:
                          fontsize=size, fontname=fontname, color=color)
 
 
-def patch_pdf(source_rel: str, old_content: Any, new_content: Any) -> dict[str, Any]:
+def _pdf_section_titles(src_path) -> dict[str, str]:
+    """识别原始 PDF 里各区块的标题文本（原格式补丁的「旧值」基准）。"""
+    from .pdf_import import detect_section_titles, extract_pdf
+
+    try:
+        with open(src_path, "rb") as fh:
+            extracted = extract_pdf(fh)
+    except Exception:  # noqa: BLE001 识别失败就不做标题同步，不影响内容补丁
+        return {}
+    return detect_section_titles(extracted)
+
+
+def _section_changes(src_path, old_content: Any, new_sections: list) -> list[dict[str, Any]]:
+    """区块级别的改动：标题改名 / 隐藏标题 / 隐藏整个区块。
+
+    这些信息不在 content 里（在 doc.sections），旧的补丁完全看不到——
+    于是「改了区块名，原格式里还是旧名字」。
+    """
+    changes: list[dict[str, Any]] = []
+    if not isinstance(new_sections, list) or not new_sections:
+        return changes
+    pdf_titles = _pdf_section_titles(src_path)
+    if not pdf_titles:
+        return changes
+    for sec in new_sections:
+        if not isinstance(sec, dict):
+            continue
+        key = sec.get("key")
+        pdf_title = (pdf_titles.get(key) or "").strip()
+        if not pdf_title:
+            continue
+        design = sec.get("design") or {}
+        cur_title = (sec.get("title") or "").strip()
+        if design.get("hideTitle"):
+            changes.append({"path": f"sections.{key}.title", "old": pdf_title, "new": None})
+        elif cur_title and cur_title != pdf_title:
+            changes.append({"path": f"sections.{key}.title", "old": pdf_title, "new": cur_title})
+        # 隐藏整个区块：内容一并移除（与模板预览「不可见」一致）
+        if sec.get("visible") is False:
+            for path, val in flatten_content({key: (old_content or {}).get(key)}).items():
+                changes.append({"path": path, "old": val, "new": None})
+    return changes
+
+
+def patch_pdf(source_rel: str, old_content: Any, new_content: Any,
+              new_sections: list | None = None) -> dict[str, Any]:
     """把 new_content 相对 old_content 的改动应用到原始 PDF。
 
     返回 {data, applied:[{path}], failed:[{path, reason}], unchanged: bool}
@@ -354,6 +399,7 @@ def patch_pdf(source_rel: str, old_content: Any, new_content: Any) -> dict[str, 
         raise FileNotFoundError(f"原始 PDF 不存在：{source_rel}")
 
     changes = diff_content(old_content, new_content)
+    changes.extend(_section_changes(src, old_content, new_sections))
     original = src.read_bytes()
     if not changes:
         return {"data": original, "applied": [], "failed": [], "unchanged": True}

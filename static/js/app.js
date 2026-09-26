@@ -522,7 +522,7 @@ async function loadSourcePdf(rel, opts = {}) {
     // 实时预览：把「当前」（含未保存）内容发给后端打补丁，编辑即所见
     const data = live
       ? await api.postJson(`/api/v1/documents/${store.doc.id}/source-pages`,
-                           { content: store.doc.content })
+                           { content: store.doc.content, sections: store.doc.sections })
       : await api.getJson(`/api/v1/documents/${store.doc.id}/source-pages`);
     // 已渲染过同一版本就不再重复（live 按内容哈希判断，内容没变不重渲染）
     const key = live ? `live:${data.digest || ""}` : rel;

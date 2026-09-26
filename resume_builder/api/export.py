@@ -88,7 +88,8 @@ def _export_pdf_original(doc: dict):
     if not rel:
         return jsonify({"error": "该文档没有关联的原始 PDF（非对照导入），请用模板导出"}), 400
     try:
-        result = pdf_patch.patch_pdf(rel, doc.get("sourceContent"), doc.get("content"))
+        result = pdf_patch.patch_pdf(rel, doc.get("sourceContent"), doc.get("content"),
+                                     doc.get("sections"))
     except FileNotFoundError as e:
         return jsonify({"error": str(e)}), 404
     except Exception as e:  # noqa: BLE001
