@@ -201,6 +201,7 @@ def source_pages_live(doc_id: str):
         "digest": digest,
         "applied": len(result["applied"]),
         "failed": result["failed"][:5],
+        "unplaced": result.get("unplaced", [])[:8],
     })
 
 

@@ -164,6 +164,24 @@ h1, h2, h3, h4, p, figure {{ margin: 0; }}
 .rlist li + li {{ margin-top: 2px; }}
 .rlist-plain li::before {{ background: var(--r-text-mute); }}
 
+/* 列表标记（可自定义：圆点 / 短横 / 箭头 / 无 / 自定义字符） */
+.rlist[data-bullet="dash"] li::before,
+.rlist[data-bullet="arrow"] li::before,
+.rlist[data-bullet="custom"] li::before {{
+  content: var(--r-bullet-char, "•");
+  width: auto;
+  height: auto;
+  top: 0;
+  border-radius: 0;
+  background: none;
+  color: var(--r-accent);
+  font-weight: 700;
+  font-size: 0.92em;
+  line-height: 1.5;
+}}
+.rlist[data-bullet="none"] li::before {{ content: none; }}
+.rlist[data-bullet="none"] li {{ padding-left: 0; }}
+
 /* 成果分组（工作经历/项目经历下的业绩） */
 .ritem-ach {{
   margin-top: 5px;

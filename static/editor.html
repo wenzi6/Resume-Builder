@@ -445,6 +445,21 @@
         <input type="checkbox" id="secHideTitle">
         <span>隐藏区块标题</span>
       </label>
+      <div class="field-group">
+        <label class="field-label" for="secBullet">列表标记（本区块）</label>
+        <select class="field-input" id="secBullet">
+          <option value="">跟随全局设置</option>
+          <option value="dot">圆点</option>
+          <option value="dash">短横</option>
+          <option value="arrow">箭头</option>
+          <option value="none">无</option>
+          <option value="custom">自定义字符</option>
+        </select>
+      </div>
+      <div class="field-group" id="secBulletCharRow" style="display:none">
+        <label class="field-label" for="secBulletChar">自定义字符</label>
+        <input class="field-input" type="text" id="secBulletChar" maxlength="4" placeholder="如 • – ▸ ◆">
+      </div>
     </div>
     <footer class="dialog-foot dialog-actions-end">
       <button class="btn btn-primary btn-sm" type="button" id="btnSaveSecDesign">保存</button>

@@ -484,6 +484,10 @@ export function openSectionDesign(section) {
   const d = section.design || {};
   document.getElementById("secCols").value = String(d.columns || 1);
   document.getElementById("secHideTitle").checked = !!d.hideTitle;
+  document.getElementById("secBullet").value = d.bulletStyle || "";
+  document.getElementById("secBulletChar").value = d.bulletChar || "•";
+  document.getElementById("secBulletCharRow").style.display =
+    d.bulletStyle === "custom" ? "" : "none";
   document.getElementById("secDesignOverlay").hidden = false;
 }
 
@@ -492,9 +496,15 @@ export function bindSectionDesign() {
     if (!secDesignTarget) return;
     const cols = parseInt(document.getElementById("secCols").value, 10) || 1;
     const hide = document.getElementById("secHideTitle").checked;
+    const bullet = document.getElementById("secBullet").value;
+    const bulletChar = document.getElementById("secBulletChar").value.trim();
     const design = {};
     if (cols === 2) design.columns = 2;
     if (hide) design.hideTitle = true;
+    if (bullet) {
+      design.bulletStyle = bullet;
+      if (bullet === "custom") design.bulletChar = bulletChar || "•";
+    }
     if (Object.keys(design).length) secDesignTarget.design = design;
     else delete secDesignTarget.design;
     store.touch();
@@ -507,6 +517,14 @@ export function bindSectionDesign() {
   document.getElementById("secDesignOverlay").addEventListener("click", (e) => {
     if (e.target.id === "secDesignOverlay") e.target.hidden = true;
   });
+  const secBulletSel = document.getElementById("secBullet");
+  if (secBulletSel && !secBulletSel.dataset.bound) {
+    secBulletSel.dataset.bound = "1";
+    secBulletSel.addEventListener("change", () => {
+      document.getElementById("secBulletCharRow").style.display =
+        secBulletSel.value === "custom" ? "" : "none";
+    });
+  }
 }
 
 export function scrollToSection(key) {

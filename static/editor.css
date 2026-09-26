@@ -1088,6 +1088,23 @@ input[type="range"]::-moz-range-thumb {
   color: var(--text-2);
   white-space: nowrap;
 }
+.source-page { position: relative; }
+/* 原版式放不下的新内容：页面上标注 */
+.source-new-tag {
+  position: absolute;
+  transform: translateY(-100%);
+  max-width: 92%;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(22, 163, 74, 0.14);
+  border: 1px dashed var(--ok, #16a34a);
+  color: var(--ok, #15803d);
+  font-weight: 600;
+  line-height: 1.35;
+  white-space: pre-wrap;
+  word-break: break-word;
+  pointer-events: auto;
+}
 
 /* 自由文本框（技能 / 自我评价 / 其他信息）：一个大多行输入 */
 .free-textarea {
@@ -1096,6 +1113,8 @@ input[type="range"]::-moz-range-thumb {
   resize: vertical;
   font-size: 13px;
 }
+.seg-wrap { flex-wrap: wrap; gap: 4px; }
+.bullet-char-input { max-width: 90px; text-align: center; }
 
 /* ============ 对话思考过程 ============ */
 .chat-think {

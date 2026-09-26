@@ -228,6 +228,12 @@ def _page_lines(page) -> list[dict[str, Any]]:
     return lines
 
 
+def fitz_rect(bbox):
+    import fitz
+
+    return fitz.Rect(bbox)
+
+
 def _span_color(span) -> tuple[float, float, float]:
     color = span.get("color", 0)
     if isinstance(color, int):
@@ -413,6 +419,111 @@ def _section_changes(src_path, old_content: Any, new_sections: list) -> list[dic
     return changes
 
 
+def _entry_anchor_candidates(content: Any, path: str, exclude: str = "") -> list[str]:
+    """从新增路径推出「同一条目」里已有的文本候选，用于在 PDF 里定位插入点。
+
+    例如新增 workExperiences.1.achievements.0 时，用第 1 段经历最后的
+    一条 bullet、或公司名作为锚点。exclude 是新增值本身（不能拿它当锚点，
+    它在 PDF 里还不存在）。返回多个候选，逐个尝试。
+    """
+    ex = str(exclude or "").strip()
+    out: list[str] = []
+
+    def _push(v):
+        v = str(v or "").strip()
+        if v and v != ex and v not in out:
+            out.append(v)
+
+    parts = str(path).split(".")
+    if len(parts) >= 4 and parts[1].isdigit():
+        sec, idx = parts[0], int(parts[1])
+        items = (content or {}).get(sec) if isinstance(content, dict) else None
+        if isinstance(items, list) and 0 <= idx < len(items) and isinstance(items[idx], dict):
+            item = items[idx]
+            for fk in ("descriptions", "achievements"):
+                vals = [str(v).strip() for v in (item.get(fk) or []) if str(v).strip()]
+                for v in reversed(vals):
+                    _push(v)
+            for fk in ("company", "project", "school", "name", "title"):
+                _push(item.get(fk))
+    if len(parts) >= 2 and isinstance(content, dict):
+        val = content.get(parts[0])
+        if isinstance(val, dict):
+            vals = [str(v).strip() for v in (val.get("descriptions") or []) if str(v).strip()]
+            for v in reversed(vals):
+                _push(v)
+    return out
+
+
+def _append_new_line(doc, new_content: Any, path: str, new_val: str) -> tuple[bool, str, dict]:
+    """把新增的一行插到对应条目块的最后一行之后。
+
+    原格式 PDF 的版式是固定的，新内容只能见缝插针：锚点行与下一行之间
+    放得下一行时才插入，否则明确告知（而不是静默丢弃）。
+    """
+    candidates = _entry_anchor_candidates(new_content, path, new_val)
+    if not candidates:
+        return False, "新增内容无法在原始版式中定位（找不到同行内容做参照）", {}
+
+    for page in doc:
+        lines = _page_lines(page)
+        # 锚点可能被 PDF 换行拆开，用前缀匹配；取最后一次出现（条目末尾）
+        hit_idx = -1
+        for cand in candidates:
+            probe = _norm(cand)[:12]
+            if len(probe) < 4:
+                continue
+            for i, ln in enumerate(lines):
+                if probe in _norm(ln["text"]):
+                    hit_idx = i
+            if hit_idx >= 0:
+                break
+        if hit_idx < 0:
+            continue
+        anchor = lines[hit_idx]
+        spans = anchor["spans"]
+        if not spans:
+            continue
+        first = spans[0]
+        size = float(first.get("size") or 10.0)
+        color = _span_color(first)
+        bold = _detect_bold(page, first)
+        ab = fitz_rect(first["bbox"])
+        y0, y1 = ab.y0, ab.y1
+        x = ab.x0
+        # 下一行（同页）的顶部位置
+        next_top = None
+        for ln in lines[hit_idx + 1:]:
+            b = fitz_rect(ln["spans"][0]["bbox"])
+            if b.y0 > y1 - 1:
+                next_top = b.y0
+                break
+        limit = float(page.rect.height) - 24
+        if next_top is None:
+            next_top = limit
+        gap = next_top - y1
+        need = size * 1.25
+        baseline = y1 + size * 0.95
+        pos = {
+            "page": page.number,
+            "x": round(x, 1),
+            "y": round(baseline, 1),
+            "size": round(size, 1),
+            "pageW": round(float(page.rect.width), 1),
+            "pageH": round(float(page.rect.height), 1),
+        }
+        if gap < need or baseline > limit:
+            # 放不进原版式：把位置交给前端做覆盖层标注，用户仍能看到自己加的内容
+            return False, "原版式没有空间，已在页面上标注", pos
+        font = _load_font(bold)
+        text = str(new_val or "").strip()
+        if not text:
+            return True, "", {}
+        _insert_text(page, (x, baseline), text, size, color, bold, font)
+        return True, "", {}
+    return False, "新增内容无法在原始版式中定位", {}
+
+
 def patch_pdf(source_rel: str, old_content: Any, new_content: Any,
               new_sections: list | None = None) -> dict[str, Any]:
     """把 new_content 相对 old_content 的改动应用到原始 PDF。
@@ -434,11 +545,20 @@ def patch_pdf(source_rel: str, old_content: Any, new_content: Any,
     doc = fitz.open(stream=original, filetype="pdf")
     applied: list[dict[str, Any]] = []
     failed: list[dict[str, Any]] = []
+    unplaced: list[dict[str, Any]] = []
 
     for ch in changes:
         old_val, new_val, path = ch["old"], ch["new"], ch["path"]
         if old_val is None:
-            failed.append({"path": path, "reason": "新增内容无法在原始版式中定位"})
+            # 新增内容：尝试插到对应条目块的最后一行之后（有垂直空间时）
+            ok, why, pos = _append_new_line(doc, new_content, path, new_val)
+            if ok:
+                applied.append({"path": path})
+            else:
+                failed.append({"path": path, "reason": why})
+                if pos:
+                    unplaced.append({"path": path, "text": str(new_val or "")[:120],
+                                     "reason": why, **pos})
             continue
 
         target = _norm(old_val)
@@ -467,7 +587,8 @@ def patch_pdf(source_rel: str, old_content: Any, new_content: Any,
 
     buf = doc.tobytes(deflate=True, garbage=3)
     doc.close()
-    return {"data": buf, "applied": applied, "failed": failed, "unchanged": False}
+    return {"data": buf, "applied": applied, "failed": failed,
+            "unplaced": unplaced, "unchanged": False}
 
 
 def _is_pure_cjk(s: str) -> bool:
@@ -482,11 +603,17 @@ _ORPHAN_LABEL_RE = re.compile(
 )
 
 
+# 行首的列表标记（· • – ▸ ◆ 等）
+_BULLET_MARK_RE = re.compile(r"^[·•▪▫◦‧・⁃\-–—▸◆\s]+$")
+
+
 def _only_label_left(remainder: str) -> bool:
-    """删掉内容后，行里剩下的是否只是个标签（如「主修课程：」）。"""
+    """删掉内容后，行里剩下的是否只是个标签（如「主修课程：」）或一个圆点。"""
     r = (remainder or "").strip()
     if not r:
         return True
+    if _BULLET_MARK_RE.match(r):
+        return True          # 只剩「· 」这类标记 → 等同于空，整行清除
     return bool(_ORPHAN_LABEL_RE.match(r))
 
 
@@ -556,6 +683,11 @@ def _replace_in_line(page, line: dict, raw_old: str, new_val, path: str):
     affected = [i for i, (a, b) in enumerate(offsets) if a < end and b > start]
     if not affected:
         return False, None
+    # 行首的列表标记（· • 等）是独立 Span，向左扩进去——否则删了内容只剩个圆点
+    j = affected[0] - 1
+    while j >= 0 and _BULLET_MARK_RE.match((spans[j].get("text") or "").strip()):
+        affected.insert(0, j)
+        j -= 1
 
     first, last = spans[affected[0]], spans[affected[-1]]
     seg_start, seg_end = offsets[affected[0]][0], offsets[affected[-1]][1]

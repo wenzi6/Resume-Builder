@@ -536,11 +536,26 @@ async function loadSourcePdf(rel, opts = {}) {
     data.pages.forEach((p) => {
       const fig = document.createElement("figure");
       fig.style.margin = "0";
+      fig.className = "source-page";
       const img = document.createElement("img");
       img.src = p.url;
       img.alt = `第 ${p.page} 页`;
       img.loading = "lazy";
       fig.appendChild(img);
+      // 原版式放不下的新内容：在对应位置标注出来（用户仍能看到自己加了什么）
+      (data.unplaced || [])
+        .filter((u) => u.page === p.page && u.pageW && u.pageH)
+        .forEach((u) => {
+          const tag = document.createElement("div");
+          tag.className = "source-new-tag";
+          tag.style.left = `${(u.x / u.pageW) * 100}%`;
+          tag.style.top = `${(u.y / u.pageH) * 100}%`;
+          tag.style.fontSize = `max(10px, ${(u.size / u.pageH) * 100}vh)`;
+          tag.textContent = `＋ ${u.text}`;
+          tag.title = "这条是新增内容：原始 PDF 版式固定，放不下，已在此标注；"
+            + "切到「模板预览」或用「模板排版」导出可见完整效果";
+          fig.appendChild(tag);
+        });
       const no = document.createElement("figcaption");
       no.className = "source-page-no";
       no.textContent = `第 ${p.page} 页 / 共 ${data.pages.length} 页`;
@@ -558,8 +573,9 @@ async function loadSourcePdf(rel, opts = {}) {
       } else if (live) {
         liveInfo.textContent = "与原始 PDF 一致（暂无修改）";
       }
-      if (live && data.failed?.length) {
-        liveInfo.textContent += ` · ${data.failed.length} 处未能补进原格式（导出时会提示）`;
+      const nUnplaced = (data.unplaced || []).length;
+      if (live && nUnplaced) {
+        liveInfo.textContent += ` · ${nUnplaced} 处新内容放不进原版式（已在页面绿框标注）`;
         liveInfo.style.color = "var(--warn, #d97706)";
       }
     }

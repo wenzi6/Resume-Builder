@@ -497,3 +497,35 @@ def test_split_between_fields_is_not_a_patch_change():
 
     # 反向挪回去也一样
     assert pdf_patch.diff_content(new, old) == []
+
+
+def test_delete_bullet_removes_its_dot(tmp_path):
+    """删掉一条带圆点的 bullet，圆点必须一起消失（原 PDF 里圆点是独立 Span）。"""
+    import pymupdf
+
+    from resume_builder.services import pdf_patch
+
+    pdf = _per_char_pdf([
+        "· 第一条内容",
+        "· 第二条内容",
+        "· 第三条内容",
+    ])
+    src = tmp_path / "dots.pdf"
+    src.write_bytes(pdf)
+
+    def dot_count(data: bytes) -> int:
+        with pymupdf.open(stream=data, filetype="pdf") as doc:
+            return sum(1 for p in doc for ln in pdf_patch._page_lines(p)
+                       for s in ln["spans"] if (s["text"] or "").strip() in ("·", "•"))
+
+    before = dot_count(pdf)
+    assert before == 3, before
+
+    old = {"skills": {"descriptions": ["第一条内容", "第二条内容", "第三条内容"]}}
+    new = {"skills": {"descriptions": ["第一条内容", "第三条内容"]}}
+    r = pdf_patch.patch_pdf(str(src), old, new)
+    assert any(a["path"].endswith("descriptions.1") for a in r["applied"]), r["failed"]
+    text = _text(r["data"])
+    assert "第二条内容" not in text
+    assert "第一条内容" in text and "第三条内容" in text
+    assert dot_count(r["data"]) == before - 1, "圆点没跟着一起删掉"

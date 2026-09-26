@@ -226,3 +226,57 @@ def test_legacy_skills_migrated_to_free_list():
     skills = out["content"]["skills"]
     assert "featuredSkills" not in skills
     assert set(skills["descriptions"]) == {"React", "Vue", "Webpack", "Vite"}
+
+
+# ---------------- 自定义列表标记 ----------------
+
+@pytest.mark.parametrize("style,expect_attr", [
+    ("dot", 'data-bullet="dot"'),
+    ("dash", 'data-bullet="dash"'),
+    ("arrow", 'data-bullet="arrow"'),
+    ("none", 'data-bullet="none"'),
+    ("custom", 'data-bullet="custom"'),
+])
+def test_bullet_style_attr(style, expect_attr):
+    """全局列表标记样式要体现在渲染属性上。"""
+    from resume_builder.engine import renderer
+    from resume_builder.sample import sample_general
+
+    doc = sample_general()
+    doc["templateId"] = "classic"
+    doc["design"]["bulletStyle"] = style
+    if style == "custom":
+        doc["design"]["bulletChar"] = "◆"
+    html = renderer.render_html(doc)
+    assert expect_attr in html
+    if style == "custom":
+        assert "◆" in html
+
+
+def test_bullet_style_section_override():
+    """区块级标记覆盖全局。"""
+    from resume_builder.engine import renderer
+    from resume_builder.sample import sample_general
+
+    doc = sample_general()
+    doc["templateId"] = "classic"
+    doc["design"]["bulletStyle"] = "dot"
+    for s in doc["sections"]:
+        if s["key"] == "workExperiences":
+            s["design"] = {"bulletStyle": "arrow"}
+    html = renderer.render_html(doc)
+    assert 'data-bullet="arrow"' in html
+
+
+def test_empty_bullets_leave_no_mark():
+    """空字符串项不渲染（不留孤立圆点）。"""
+    from resume_builder.engine import sections as sec
+
+    section = {"key": "workExperiences", "type": "array", "title": "工作经历",
+               "titleField": "company",
+               "fields": [{"key": "company", "type": "text"},
+                          {"key": "descriptions", "type": "list"}]}
+    content = {"workExperiences": [{"company": "A", "descriptions": ["有内容", "", "  ", None]}]}
+    html = sec.render_array(section, content, {})
+    assert "有内容" in html
+    assert html.count("<li>") == 1

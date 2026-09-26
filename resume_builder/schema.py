@@ -25,9 +25,15 @@ DEFAULT_DESIGN: dict[str, Any] = {
     "pageMargin": 20.0,         # mm, 12.7 ~ 25
     "accent": "#0f766e",
     "dateAlign": "right",       # right | below
+    "bulletStyle": "dot",       # dot | dash | arrow | none | custom（列表前的标记）
+    "bulletChar": "•",          # custom 时使用的字符
     "showPhoto": False,
     "compact": False,
 }
+
+# 列表标记样式（可自定义「职责/要点前的黑点」）
+BULLET_STYLES = ("dot", "dash", "arrow", "none", "custom")
+BULLET_CHARS = {"dot": "•", "dash": "–", "arrow": "▸", "none": "", "custom": "•"}
 
 DESIGN_LIMITS = {
     "fontScale": (0.80, 1.15),   # 下限 0.80：一键适应一页的压缩阶梯需要（8.4pt 仍是可读下限）
@@ -58,6 +64,10 @@ def normalize_design(design: dict[str, Any] | None) -> dict[str, Any]:
     d = copy.deepcopy(DEFAULT_DESIGN)
     if not isinstance(design, dict):
         return d
+    bs = design.get("bulletStyle")
+    d["bulletStyle"] = bs if bs in BULLET_STYLES else "dot"
+    bc = str(design.get("bulletChar") or "").strip()
+    d["bulletChar"] = bc[:4] if bc else BULLET_CHARS.get(d["bulletStyle"], "•")
     for key in ("fontScale", "lineHeight", "sectionGap", "pageMargin"):
         if key in design:
             lo, hi = DESIGN_LIMITS[key]
@@ -145,7 +155,7 @@ def new_document(template_id: str = "classic", title: str = "未命名简历") -
 # ---------- 归一化 ----------
 
 def _clean_section_design(design: Any) -> dict[str, Any]:
-    """区块级设计覆盖（目前支持：双列 / 隐藏标题）。"""
+    """区块级设计覆盖（双列 / 隐藏标题 / 列表标记样式）。"""
     if not isinstance(design, dict):
         return {}
     out: dict[str, Any] = {}
@@ -153,6 +163,11 @@ def _clean_section_design(design: Any) -> dict[str, Any]:
         out["columns"] = int(design["columns"])
     if design.get("hideTitle"):
         out["hideTitle"] = True
+    if design.get("bulletStyle") in BULLET_STYLES:
+        out["bulletStyle"] = design["bulletStyle"]
+        bc = str(design.get("bulletChar") or "").strip()
+        if bc:
+            out["bulletChar"] = bc[:4]
     return out
 
 

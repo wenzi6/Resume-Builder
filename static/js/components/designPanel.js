@@ -213,6 +213,48 @@ export function renderDesignPanel(container) {
   dateRow.appendChild(dateSeg);
   gMisc.appendChild(dateRow);
 
+  /* ---- 列表标记（职责/要点前的圆点）---- */
+  const gBullet = el("div", "design-group");
+  gBullet.appendChild(el("div", "design-group-title", "列表标记"));
+  gBullet.appendChild(el("p", "field-hint",
+    "职责描述、要点、成果前的标记。选「自定义」可填任意字符，选「无」则不加标记。"));
+  const bulletSeg = el("div", "seg seg-wrap");
+  const BULLETS = [["dot", "圆点"], ["dash", "短横"], ["arrow", "箭头"],
+                   ["none", "无"], ["custom", "自定义"]];
+  for (const [v, label] of BULLETS) {
+    const b = el("button", (design.bulletStyle || "dot") === v ? "active" : "", label);
+    b.type = "button";
+    b.dataset.bulletStyle = v;
+    b.addEventListener("click", () => {
+      store.doc.design.bulletStyle = v;
+      store.touch();
+      syncDesignValues();
+      if (v === "custom") charInput.focus();
+    });
+    bulletSeg.appendChild(b);
+  }
+  const bulletRow = el("div", "design-row");
+  bulletRow.appendChild(bulletSeg);
+  gBullet.appendChild(bulletRow);
+
+  const charRow = el("div", "design-row");
+  charRow.id = "bulletCharRow";
+  charRow.appendChild(el("span", "design-label", "自定义字符"));
+  const charInput = el("input", "field-input bullet-char-input");
+  charInput.type = "text";
+  charInput.maxLength = 4;
+  charInput.value = design.bulletChar || "•";
+  charInput.placeholder = "如 • – ▸ ◆";
+  charInput.addEventListener("input", () => {
+    store.doc.design.bulletChar = charInput.value.trim() || "•";
+    if (store.doc.design.bulletStyle !== "custom") store.doc.design.bulletStyle = "custom";
+    store.touch();
+    syncDesignValues();
+  });
+  charRow.appendChild(charInput);
+  gBullet.appendChild(charRow);
+  container.appendChild(gBullet);
+
   const photoRow = el("label", "check-row");
   photoRow.style.marginTop = "10px";
   const photoCb = el("input");
@@ -351,9 +393,20 @@ export function syncDesignValues() {
   document.querySelectorAll("[data-head-font]").forEach((b) => {
     b.classList.toggle("active", b.dataset.headFont === (design.headFont || "sans"));
   });
-  document.querySelectorAll("[data-dateAlign]").forEach((b) => {
+  document.querySelectorAll("[data-date-align]").forEach((b) => {
     b.classList.toggle("active", b.dataset.dateAlign === design.dateAlign);
   });
+  document.querySelectorAll("[data-bullet-style]").forEach((b) => {
+    b.classList.toggle("active", b.dataset.bulletStyle === (design.bulletStyle || "dot"));
+  });
+  const charInput = document.querySelector(".bullet-char-input");
+  if (charInput && document.activeElement !== charInput) {
+    charInput.value = design.bulletChar || "•";
+  }
+  const charRow = document.getElementById("bulletCharRow");
+  if (charRow) {
+    charRow.style.display = design.bulletStyle === "custom" ? "" : "none";
+  }
   document.querySelectorAll("[data-color]").forEach((b) => {
     b.classList.toggle("active", (b.dataset.color || "").toLowerCase() === (design.accent || "").toLowerCase());
   });

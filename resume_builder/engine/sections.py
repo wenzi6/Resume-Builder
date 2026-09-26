@@ -54,8 +54,24 @@ def _is_empty(value: Any) -> bool:
     return not _clean(value)
 
 
-def _list_html(items: Any, cls: str = "rlist") -> str:
-    """列表字段 -> <ul>；空则返回空串。"""
+def _bullet_attr(section: dict, design: dict) -> str:
+    """列表标记的属性片段（data-bullet + 自定义字符）。
+
+    优先级：区块级 design > 全局 design > 默认圆点。
+    """
+    sec_d = _sec_design(section)
+    style = sec_d.get("bulletStyle") or (design or {}).get("bulletStyle") or "dot"
+    if style not in ("dot", "dash", "arrow", "none", "custom"):
+        style = "dot"
+    char = sec_d.get("bulletChar") or (design or {}).get("bulletChar") or _BULLET_CHARS.get(style, "•")
+    out = f' data-bullet="{style}"'
+    if style == "custom":
+        out += f" style=\"--r-bullet-char: '{html.escape(str(char)[:4])}'\""
+    return out
+
+
+def _list_html(items: Any, cls: str = "rlist", bullet_attr: str = "") -> str:
+    """列表字段 -> <ul>；空则返回空串。空字符串项一律跳过（不留孤立圆点）。"""
     if isinstance(items, str):
         items = typo.split_lines(items)
     if not isinstance(items, list):
@@ -66,7 +82,7 @@ def _list_html(items: Any, cls: str = "rlist") -> str:
         txt = typo.tidy("" if txt is None else str(txt))
         if txt:
             lis.append(f"<li>{html.escape(txt)}</li>")
-    return f'<ul class="{cls}">{"".join(lis)}</ul>' if lis else ""
+    return f'<ul class="{cls}"{bullet_attr}>{"".join(lis)}</ul>' if lis else ""
 
 
 # ---------------------------------------------------------------- 个人信息
@@ -193,7 +209,7 @@ def render_array(section: dict, content: dict, design: dict) -> str:
                 continue
             val = item.get(fk)
             if isinstance(val, list):
-                lst = _list_html(val)
+                lst = _list_html(val, bullet_attr=_bullet_attr(section, design))
                 if lst:
                     lists.append(lst)
                 continue
@@ -222,7 +238,8 @@ def render_array(section: dict, content: dict, design: dict) -> str:
         # 成果：独立分组 + 标签（与职责描述区分开，简历不单调）
         ach = item.get("achievements")
         if isinstance(ach, list) and any(str(x).strip() for x in ach):
-            ach_lst = _list_html(ach, cls="rlist rlist-ach")
+            ach_lst = _list_html(ach, cls="rlist rlist-ach",
+                                 bullet_attr=_bullet_attr(section, design))
             if ach_lst:
                 lists.append(
                     '<div class="ritem-ach">'
@@ -275,6 +292,9 @@ def render_free(section: dict, content: dict, design: dict) -> str:
         f'{(title_html or "")}'
         f'<div class="rsec-body"><div class="rfree">{paras}</div></div></section>'
     )
+
+
+_BULLET_CHARS = {"dot": "•", "dash": "–", "arrow": "▸", "none": "", "custom": "•"}
 
 
 RENDERERS = {
