@@ -515,6 +515,12 @@ def _parse_projects(proj_lines: list[str], bolds: list[bool] | None = None) -> l
 
 
 def _parse_educations(edu_lines: list[str]) -> list[dict]:
+    """解析教育背景。
+
+    备注行**保留原始标签**（如「主修课程：数据通信与网络基础…」）——
+    剥掉标签后用户只看到一串课程名挂在「备注」下，根本认不出那就是
+    PDF 里的「主修课程」，还会以为没匹配上而手动删掉。
+    """
     items, cur = [], None
     for line in edu_lines:
         if re.search(r"20\d{2}[-~.]", line):
@@ -531,9 +537,9 @@ def _parse_educations(edu_lines: list[str]) -> list[dict]:
             elif rest:
                 cur["school"] = rest
         elif cur:
-            d = LABEL_PREFIX_RE.sub("", line).strip()
+            d = line.strip()
             if d and not cur["degree"]:
-                cur["degree"] = d
+                cur["degree"] = LABEL_PREFIX_RE.sub("", d).strip()
             elif d:
                 cur["descriptions"].append(d)
         else:

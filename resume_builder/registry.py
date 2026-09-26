@@ -73,7 +73,7 @@ BUILTIN_SECTIONS: list[dict[str, Any]] = [
             {"key": "school", "label": "学校", "type": "text"},
             {"key": "degree", "label": "学历 / 专业", "type": "text"},
             {"key": "date", "label": "时间", "type": "text"},
-            {"key": "descriptions", "label": "备注", "type": "list"},
+            {"key": "descriptions", "label": "备注 / 主修课程", "type": "list"},
         ],
     },
     {

@@ -247,3 +247,31 @@ def test_import_adopts_pdf_section_titles(client):
     imported = r.get_json()["document"]
     titles = {s["key"]: s["title"] for s in imported["sections"]}
     assert titles.get("skills") == "技能特长", titles
+
+
+# ---------------- 教育背景保留原始标签（主修课程） ----------------
+
+def test_parse_educations_keeps_label_prefix():
+    """「主修课程：xxx」要原样进备注——剥掉标签用户认不出，会以为没匹配上。"""
+    lines = [
+        "2018-09~2021-07 四川现代职业学院",
+        "电子信息工程技术(大专)",
+        "主修课程:数据通信与网络基础、信息技术应用及训练、C语言程序设计基础等等。",
+    ]
+    items = pdf_import._parse_educations(lines)
+    assert len(items) == 1
+    assert items[0]["school"] == "四川现代职业学院"
+    assert items[0]["degree"] == "电子信息工程技术(大专)"
+    assert items[0]["descriptions"] == [
+        "主修课程:数据通信与网络基础、信息技术应用及训练、C语言程序设计基础等等。"]
+
+
+def test_parse_educations_degree_still_strips_label():
+    """学历行仍剥标签（「专业：计算机」→「计算机」），不回归。"""
+    lines = [
+        "2014-09~2018-06 中山大学",
+        "专业:计算机科学与技术",
+    ]
+    items = pdf_import._parse_educations(lines)
+    assert items[0]["degree"] == "计算机科学与技术"
+    assert items[0]["descriptions"] == []
