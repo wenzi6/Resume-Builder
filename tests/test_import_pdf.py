@@ -315,3 +315,60 @@ def test_render_array_shows_achievement_group():
     assert "ritem-ach" in html
     assert "成果" in html
     assert "性能提升 40%" in html
+
+
+# ---------------------------------------------------------------- 页眉杂质与邮箱（用户双简历回归）
+
+def _mk_extract(lines):
+    """合成 extract_pdf 输出：每行一个 section（不加粗、普通字号）。"""
+    return {
+        "pages": [], "fonts": {},
+        "raw_text": "\n".join(lines),
+        "structure": {"total_lines": len(lines), "sections": [
+            {"text": l, "font_size": 10, "bold": False, "is_title": False}
+            for l in lines
+        ]},
+    }
+
+
+def test_import_extracts_digit_qq_email():
+    """纯数字 QQ 邮箱：靠「联系邮箱」标签提取（旧逻辑要求字母开头，会漏掉）。"""
+    ex = _mk_extract([
+        "宋文鑫",
+        "IT招聘专员 面议 一周内到岗",
+        "年龄:25岁 性别:男 联系电话:18227424364 联系邮箱:2802043817@qq.com 所在地:长沙",
+    ])
+    doc = pdf_import.build_document_from_pdf(ex)
+    assert doc["profile"]["email"] == "2802043817@qq.com"
+    assert doc["profile"]["phone"] == "18227424364"
+
+
+def test_import_extracts_labeled_letter_email():
+    """字母邮箱 + Email 标签仍可提取（回归旧路径）。"""
+    ex = _mk_extract(["张三", "联系Email: zhang.san@example.com"])
+    doc = pdf_import.build_document_from_pdf(ex)
+    assert doc["profile"]["email"] == "zhang.san@example.com"
+
+
+def test_import_header_junk_not_in_custom():
+    """页眉杂质（RESUME 水印 / 求职意向行 / 联系方式行）不得泄进「其他信息」。"""
+    ex = _mk_extract([
+        "宋文鑫",
+        "RESUME",
+        "IT招聘专员 面议 一周内到岗",
+        "年龄:25岁 性别:男 联系电话:18227424364 联系邮箱:2802043817@qq.com 所在地:长沙",
+        "技能特长",
+        "熟悉TCP/IP网络体系。",
+    ])
+    doc = pdf_import.build_document_from_pdf(ex)
+    assert doc["custom"]["descriptions"] == []
+    assert doc["profile"]["title"] == "IT招聘专员"
+    assert doc["profile"]["email"] == "2802043817@qq.com"
+
+
+def test_import_custom_keeps_legit_lines():
+    """非页眉的未归类行仍进「其他信息」。"""
+    ex = _mk_extract(["张三", "兴趣爱好:羽毛球、摄影", "博客:https://blog.example.com"])
+    doc = pdf_import.build_document_from_pdf(ex)
+    assert "兴趣爱好:羽毛球、摄影" in doc["custom"]["descriptions"]
+    assert "博客:https://blog.example.com" in doc["custom"]["descriptions"]

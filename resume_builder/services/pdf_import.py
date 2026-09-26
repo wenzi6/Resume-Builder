@@ -199,6 +199,33 @@ def _join_wrapped(lines: list[str]) -> list[str]:
     return out
 
 
+# 页眉装饰词（RESUME / 简历 水印，可能被拆成单字宽间距）
+HEADER_DECOR_RE = re.compile(
+    r"^(?:R\s*E\s*S\s*U\s*M\s*E|C\s*U\s*R\s*R\s*I\s*C\s*U\s*L\s*U\s*M\s+V\s*I\s*T\s*A\s*E|简\s*历)$",
+    re.I,
+)
+# 联系方式行的标签：一条行内出现 ≥2 个即视为页眉（信息已解析进 profile）
+CONTACT_LABEL_RES = (r"年\s*龄", r"性\s*别", r"联系电话", r"联\s*系\s*电\s*话",
+                     r"(?:联系)?邮箱", r"所\s*在\s*地", r"工作年限")
+
+
+def _is_header_junk(line: str, title_line: str) -> bool:
+    """页眉杂质行：RESUME 水印、求职意向行、联系方式行。
+
+    这些行的信息在 profile 里都有归属（姓名/意向/电话/邮箱…），
+    泄进「其他信息」只会重复占位。求职意向行用原文比对（title_line）。
+    """
+    t = norm_text(line).strip()
+    if not t:
+        return True
+    if HEADER_DECOR_RE.match(t):
+        return True
+    if title_line and t == norm_text(title_line).strip():
+        return True
+    hits = sum(1 for p in CONTACT_LABEL_RES if re.search(p, t))
+    return hits >= 2
+
+
 def _match_section_title(line: str, bold: bool) -> str | None:
     """判断一行是否是区块标题，返回区块 key 或 None。
 
@@ -300,8 +327,15 @@ def build_document_from_pdf(extracted: dict) -> dict:
     # 2) 联系信息
     if m := re.search(r"1[3-9]\d{9}", text):
         resume["profile"]["phone"] = m.group(0)
-    # 邮箱必须用 ASCII 字符类且以字母开头：\w 会匹配汉字、数字开头会粘上前面的电话
-    if m := re.search(r"[A-Za-z][A-Za-z0-9._%+-]*@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", text):
+    # 邮箱：优先取「联系邮箱 / Email」标签后的完整值（QQ 号等纯数字邮箱靠它）；
+    # 无标签时回退到字母开头匹配（数字开头会粘上前面的电话号码，见历史注释）
+    if m := re.search(
+        r"(?:联系)?(?:电子邮箱|邮箱|邮件|E-?mail)\s*[：:]\s*"
+        r"([A-Za-z0-9][A-Za-z0-9._%+-]*@[A-Za-z0-9.-]+\.[A-Za-z]{2,})",
+        text, re.I,
+    ):
+        resume["profile"]["email"] = m.group(1)
+    elif m := re.search(r"[A-Za-z][A-Za-z0-9._%+-]*@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", text):
         resume["profile"]["email"] = m.group(0)
     if m := re.search(r"年龄[：:]\s*(\d{1,2})\s*岁", text) or re.search(r"(\d{1,2})\s*岁", text):
         resume["profile"]["age"] = m.group(1)
@@ -378,8 +412,10 @@ def build_document_from_pdf(extracted: dict) -> dict:
     resume["skills"]["descriptions"] = skill_sentences[10:30]
     resume["selfEvaluation"]["descriptions"] = _join_wrapped(buckets["selfEvaluation"][:12])
 
-    # 5) 兜底：未能归类的行放入「其他信息」
-    leftovers = _join_wrapped([l for l in buckets["other"] if len(l) >= 4][:10])
+    # 5) 兜底：未能归类的行放入「其他信息」（页眉杂质已在 profile 有归属，滤掉）
+    leftovers = _join_wrapped([
+        l for l in buckets["other"] if len(l) >= 4 and not _is_header_junk(l, title_line)
+    ][:10])
     resume["custom"]["descriptions"] = leftovers
 
     return resume
