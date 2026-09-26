@@ -54,6 +54,15 @@ def _is_empty(value: Any) -> bool:
     return not _clean(value)
 
 
+def _achievement_label(section: dict, design: dict) -> str:
+    """「成果」小标题的文字：区块级 > 全局 > 默认「工作成果」。"""
+    sec_d = _sec_design(section)
+    label = (sec_d.get("achievementLabel")
+             or (design or {}).get("achievementLabel")
+             or "工作成果")
+    return str(label)[:12] or "工作成果"
+
+
 def _bullet_attr(section: dict, design: dict) -> str:
     """列表标记的属性片段（data-bullet + 自定义字符）。
 
@@ -241,9 +250,10 @@ def render_array(section: dict, content: dict, design: dict) -> str:
             ach_lst = _list_html(ach, cls="rlist rlist-ach",
                                  bullet_attr=_bullet_attr(section, design))
             if ach_lst:
+                label = _achievement_label(section, design)
                 lists.append(
                     '<div class="ritem-ach">'
-                    '<span class="ritem-ach-label">成果</span>'
+                    f'<span class="ritem-ach-label">{_esc(label)}</span>'
                     f'{ach_lst}</div>'
                 )
 

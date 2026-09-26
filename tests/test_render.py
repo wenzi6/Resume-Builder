@@ -280,3 +280,65 @@ def test_empty_bullets_leave_no_mark():
     html = sec.render_array(section, content, {})
     assert "有内容" in html
     assert html.count("<li>") == 1
+
+
+# ---------------- 成果小标题与岗位信息同款 + 可自定义 ----------------
+
+def test_achievement_label_matches_job_title_style():
+    """成果小标题必须与岗位信息（ritem-sub）同色同字重。"""
+    from resume_builder.engine import renderer
+    from resume_builder.sample import sample_general
+
+    doc = sample_general()
+    doc["templateId"] = "classic"
+    doc["content"]["workExperiences"][0]["achievements"] = ["性能提升 40%"]
+    html = renderer.render_html(doc)
+    import re
+
+    sub = re.search(r"\.ritem-sub \{\{?([^}]*)\}\}?", html)
+    ach = re.search(r"\.ritem-ach-label \{\{?([^}]*)\}\}?", html)
+    assert sub and ach, "缺少样式定义"
+    # 颜色与字重必须一致
+    assert "var(--r-accent)" in ach.group(1)
+    assert "font-weight: 500" in ach.group(1)
+    assert "var(--r-accent)" in sub.group(1)
+    assert "font-weight: 500" in sub.group(1)
+    # 不再有原来那个更小更粗的样式
+    assert "font-weight: 700" not in ach.group(1)
+    assert "0.86em" not in ach.group(1)
+
+
+def test_achievement_label_customizable():
+    """成果小标题文字可自定义（全局 + 区块级）。"""
+    from resume_builder.engine import renderer
+    from resume_builder.sample import sample_general
+
+    doc = sample_general()
+    doc["templateId"] = "classic"
+    doc["content"]["workExperiences"][0]["achievements"] = ["性能提升 40%"]
+    doc["design"]["achievementLabel"] = "主要业绩"
+    html = renderer.render_html(doc)
+    assert "主要业绩" in html and "工作成果" not in html
+
+    doc2 = sample_general()
+    doc2["templateId"] = "classic"
+    doc2["content"]["workExperiences"][0]["achievements"] = ["性能提升 40%"]
+    for s in doc2["sections"]:
+        if s["key"] == "workExperiences":
+            s["design"] = {"achievementLabel": "核心业绩"}
+    html2 = renderer.render_html(doc2)
+    assert "核心业绩" in html2
+
+
+def test_achievement_label_default_and_normalize():
+    """默认值、清洗与区块级字段保留。"""
+    from resume_builder.schema import normalize_document, normalize_design
+    from resume_builder.sample import sample_general
+
+    assert normalize_design({})["achievementLabel"] == "工作成果"
+    assert normalize_design({"achievementLabel": "  业绩  "})["achievementLabel"] == "业绩"
+    doc = sample_general()
+    doc["sections"][0]["design"] = {"achievementLabel": "区块标题"}
+    out = normalize_document(doc)
+    sec = next(s for s in out["sections"] if s["key"] == doc["sections"][0]["key"])
+    assert sec["design"]["achievementLabel"] == "区块标题"

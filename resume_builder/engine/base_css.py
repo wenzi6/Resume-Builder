@@ -190,12 +190,11 @@ h1, h2, h3, h4, p, figure {{ margin: 0; }}
   background: color-mix(in srgb, var(--r-accent) 7%, transparent);
   border-radius: 0 var(--r-radius-sm, 3px) var(--r-radius-sm, 3px) 0;
 }}
+/* 成果小标题：与「岗位信息」（ritem-sub）完全同款——同字号、同颜色、同字重 */
 .ritem-ach-label {{
   display: block;
-  font-size: 0.86em;
-  font-weight: 700;
   color: var(--r-accent);
-  letter-spacing: 0.04em;
+  font-weight: 500;
   margin-bottom: 1px;
 }}
 .ritem-ach .rlist {{ margin-top: 0; }}

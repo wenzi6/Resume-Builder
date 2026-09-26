@@ -27,6 +27,7 @@ DEFAULT_DESIGN: dict[str, Any] = {
     "dateAlign": "right",       # right | below
     "bulletStyle": "dot",       # dot | dash | arrow | none | custom（列表前的标记）
     "bulletChar": "•",          # custom 时使用的字符
+    "achievementLabel": "工作成果",   # 经历条目内「成果」小标题的文字（可自定义）
     "showPhoto": False,
     "compact": False,
 }
@@ -64,6 +65,8 @@ def normalize_design(design: dict[str, Any] | None) -> dict[str, Any]:
     d = copy.deepcopy(DEFAULT_DESIGN)
     if not isinstance(design, dict):
         return d
+    al = str(design.get("achievementLabel") or "").strip()
+    d["achievementLabel"] = al[:12] if al else "工作成果"
     bs = design.get("bulletStyle")
     d["bulletStyle"] = bs if bs in BULLET_STYLES else "dot"
     bc = str(design.get("bulletChar") or "").strip()
@@ -168,6 +171,9 @@ def _clean_section_design(design: Any) -> dict[str, Any]:
         bc = str(design.get("bulletChar") or "").strip()
         if bc:
             out["bulletChar"] = bc[:4]
+    al = str(design.get("achievementLabel") or "").strip()
+    if al:
+        out["achievementLabel"] = al[:12]
     return out
 
 

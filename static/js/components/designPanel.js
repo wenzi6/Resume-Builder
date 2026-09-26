@@ -237,6 +237,22 @@ export function renderDesignPanel(container) {
   bulletRow.appendChild(bulletSeg);
   gBullet.appendChild(bulletRow);
 
+  const achRow = el("div", "design-row");
+  achRow.id = "achLabelRow";
+  achRow.appendChild(el("span", "design-label", "成果小标题"));
+  const achInput = el("input", "field-input");
+  achInput.type = "text";
+  achInput.id = "achLabelInput";
+  achInput.maxLength = 12;
+  achInput.value = design.achievementLabel || "工作成果";
+  achInput.placeholder = "如：工作成果 / 主要业绩";
+  achInput.addEventListener("input", () => {
+    store.doc.design.achievementLabel = achInput.value.trim() || "工作成果";
+    store.touch();
+  });
+  achRow.appendChild(achInput);
+  gBullet.appendChild(achRow);
+
   const charRow = el("div", "design-row");
   charRow.id = "bulletCharRow";
   charRow.appendChild(el("span", "design-label", "自定义字符"));
@@ -406,6 +422,10 @@ export function syncDesignValues() {
   const charRow = document.getElementById("bulletCharRow");
   if (charRow) {
     charRow.style.display = design.bulletStyle === "custom" ? "" : "none";
+  }
+  const achInput2 = document.getElementById("achLabelInput");
+  if (achInput2 && document.activeElement !== achInput2) {
+    achInput2.value = design.achievementLabel || "工作成果";
   }
   document.querySelectorAll("[data-color]").forEach((b) => {
     b.classList.toggle("active", (b.dataset.color || "").toLowerCase() === (design.accent || "").toLowerCase());
