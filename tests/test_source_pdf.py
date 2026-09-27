@@ -255,3 +255,94 @@ def test_render_num_bullet_attr_and_css():
     css = base_css.base_css(20.0)
     assert 'data-bullet="num"' in css
     assert "counter(rbullet)" in css
+
+
+# ---------------------------------------------------------------- 标签行（短行+冒号）去点前移
+
+def test_replace_to_label_removes_vector_dot_and_outdents(client, sample_pdf_bytes):
+    """替换成短标签（如「工作成果：」）：矢量圆点清掉、文字提到圆点列。"""
+    import fitz
+
+    from resume_builder.services import pdf_patch
+
+    d = fitz.open()
+    page = d.new_page()
+    # 矢量圆点（x=130）+ 正文（x=141.4），仿用户简历的工作区版式
+    page.draw_circle((130, 100), 1.5, color=(0, 0, 0), fill=(0, 0, 0))
+    page.insert_text((141.4, 100), "维护招聘渠道及候选人资源,提高招聘效率。",
+                     fontsize=9, fontname="china-s")
+    rel = _write_source_pdf(d.tobytes(), "labelvec.pdf")
+
+    old = {"skills": {"descriptions": ["维护招聘渠道及候选人资源,提高招聘效率。"]}}
+    new = {"skills": {"descriptions": ["工作成果:"]}}
+    result = pdf_patch.patch_pdf(rel, old, new, [], design={"bulletStyle": "dot"})
+    assert not result["unchanged"]
+
+    with fitz.open(stream=result["data"], filetype="pdf") as out:
+        p = out[0]
+        text = p.get_text()
+        assert "工作成果" in text
+        # 矢量圆点应已清掉
+        small_arts = [dr for dr in p.get_drawings()
+                      if dr["rect"].width <= 8 and dr["rect"].height <= 8]
+        assert not small_arts, f"残留矢量圆点：{small_arts}"
+        # 文字应前移到圆点列（≈130），而不是留在正文列（141）
+        words = p.get_text("words")
+        label_x = min(w[0] for w in words if "工" in w[4])
+        assert label_x < 138, f"标签未前移：x={label_x}"
+
+
+def test_replace_to_label_removes_text_dot(client):
+    """文字圆点行替换成短标签：圆点字符清掉、文字提到圆点列。"""
+    import fitz
+
+    from resume_builder.services import pdf_patch
+
+    d = fitz.open()
+    page = d.new_page()
+    page.insert_text((72, 100), "·", fontsize=10, fontname="helv")
+    page.insert_text((82, 100), "维护招聘渠道及候选人资源,提高招聘效率。",
+                     fontsize=10, fontname="china-s")
+    rel = _write_source_pdf(d.tobytes(), "labeltext.pdf")
+
+    old = {"skills": {"descriptions": ["维护招聘渠道及候选人资源,提高招聘效率。"]}}
+    new = {"skills": {"descriptions": ["主要业绩:"]}}
+    result = pdf_patch.patch_pdf(rel, old, new, [], design={"bulletStyle": "dot"})
+    text = _pdf_text(result["data"])
+    assert "主要业绩" in text and "·" not in text
+
+
+def test_append_label_line_aligns_to_dot_column(client):
+    """新增短标签行：插到锚点行之后，x 对齐圆点列而非正文列。"""
+    import fitz
+
+    from resume_builder.services import pdf_patch
+
+    d = fitz.open()
+    page = d.new_page()
+    page.draw_circle((130, 100), 1.5, color=(0, 0, 0), fill=(0, 0, 0))
+    page.insert_text((141.4, 100), "负责甲方客户相关安全服务业务实施。",
+                     fontsize=9, fontname="china-s")
+    rel = _write_source_pdf(d.tobytes(), "labeladd.pdf")
+
+    old = {"skills": {"descriptions": ["负责甲方客户相关安全服务业务实施。"]}}
+    new = {"skills": {"descriptions": ["负责甲方客户相关安全服务业务实施。",
+                                        "工作成果:"]}}
+    result = pdf_patch.patch_pdf(rel, old, new, [], design={"bulletStyle": "dot"})
+    assert not result["unchanged"]
+    with fitz.open(stream=result["data"], filetype="pdf") as out:
+        words = out[0].get_text("words")
+        label_x = min(w[0] for w in words if "工" in w[4] and "作" in w[4])
+        assert label_x <= 132, f"新增标签未对齐圆点列：x={label_x}"
+
+
+def test_is_label_line_boundaries():
+    """标签行判定：短+冒号结尾；长句/无冒号/含句读的不算。"""
+    from resume_builder.services.pdf_patch import _is_label_line
+
+    assert _is_label_line("工作成果:")
+    assert _is_label_line("主要业绩：")
+    assert _is_label_line("E-mail:")
+    assert not _is_label_line("负责甲方客户相关安全服务业务实施,漏洞扫描、安全加固等工作:")
+    assert not _is_label_line("工作成果")           # 无冒号
+    assert not _is_label_line("输出防病毒周/月报:")   # 含句读斜杠视为正文行

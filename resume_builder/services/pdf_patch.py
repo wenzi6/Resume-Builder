@@ -686,6 +686,10 @@ def _append_new_line(doc, new_content: Any, path: str, new_val: str) -> tuple[bo
         ab = fitz_rect(first["bbox"])
         y0, y1 = ab.y0, ab.y1
         x = ab.x0
+        # 标签行（如「工作成果：」）：锚点是圆点行时，文字提到圆点列（标签位）
+        if _is_label_line(new_val):
+            for r in _bullet_art_rects(page, anchor):
+                x = min(x, float(r.x0))
         # 下一行（同页）的顶部位置
         next_top = None
         for ln in lines[hit_idx + 1:]:
@@ -825,6 +829,17 @@ def _only_label_left(remainder: str) -> bool:
     return bool(_ORPHAN_LABEL_RE.match(r))
 
 
+# 短标签行：以冒号结尾的短行（如「工作成果：」「主要业绩：」「职责：」）。
+# 按标签渲染——不带行首圆点，文字提到标签列，与原文「工作内容：」版式一致。
+_LABEL_LINE_RE = re.compile(r"^[^·•。，,！？!?、/\s]{1,11}[：:]$")
+
+
+def _is_label_line(text: Any) -> bool:
+    """是否是标签行：短（≤12 字）、以冒号结尾、中间无句读。"""
+    t = str(text or "").strip()
+    return bool(t) and len(t) <= 12 and bool(_LABEL_LINE_RE.match(t))
+
+
 def _right_clearance(page, line: dict, span_idx: int, from_x: float) -> tuple[float, bool]:
     """插入点右侧的可用宽度，以及右侧是否还有别的文字。
 
@@ -926,14 +941,27 @@ def _replace_in_line(page, line: dict, raw_old: str, new_val, path: str):
     # 整行就是旧值（如公司名独占一行）→ 整段替换
     if _norm(joined) == _norm(raw_old):
         new_segment = new_val
+    # 标签行（如「工作成果：」）：去掉行首圆点——文字圆点已随 affected 扩入，
+    # 矢量圆点这里补红选；文字提到圆点列（标签位），与原文「工作内容：」对齐
+    label_x = None
+    label_arts: list = []
+    if _is_label_line(new_segment):
+        if affected[0] > 0:
+            label_x = float(spans[0]["bbox"][0])      # 行首文字圆点列
+        label_arts = _bullet_art_rects(page, line)
+        if label_arts:
+            art_x = min(float(r.x0) for r in label_arts)
+            label_x = art_x if label_x is None else min(label_x, art_x)
+        elif label_x is None:
+            label_x = x
     # 字体保真：用内置 Noto Sans SC（与原 PDF 黑体观感一致），按原 span 粗细选字重
     font = _load_font(bold)
 
     # 重绘范围：默认只覆盖受影响的 Span（逐字 Span 的 PDF 精确到单字）；
     # 若整行是一个 Span 且变化部分是纯中文，按字符数比例收窄，保住同行其他内容
     redact_rect = union
-    insert_x = x
-    if len(affected) == 1 and len(segment) > len(raw_old) and _is_pure_cjk(segment):
+    insert_x = label_x if label_x is not None else x
+    if label_x is None and len(affected) == 1 and len(segment) > len(raw_old) and _is_pure_cjk(segment):
         sb = fitz.Rect(first["bbox"])
         prefix = segment.find(raw_old)
         if prefix >= 0:
@@ -947,7 +975,10 @@ def _replace_in_line(page, line: dict, raw_old: str, new_val, path: str):
     floor = MIN_FONT_SIZE if blocked else max(7.5, size * 0.88)
     fit_size, overflow = _fit_size_readable(new_segment, size, avail, font, floor)
     page.add_redact_annot(redact_rect)
-    _apply_redactions(page, remove_line_art=False)
+    for r in label_arts:
+        page.add_redact_annot(r)
+    # 标签行要清掉矢量圆点；其余替换沿用原行为（不波及行内图形）
+    _apply_redactions(page, remove_line_art=bool(label_arts))
     _insert_text(page, (insert_x, y), new_segment, fit_size, color, bold, font)
     if overflow:
         if blocked:
